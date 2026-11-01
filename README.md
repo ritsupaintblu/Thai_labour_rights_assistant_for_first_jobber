@@ -6,13 +6,14 @@ An LLM-powered assistant that answers questions about Thai employee rights, usin
 
 ## Project status
 
-This project is in progress. Only the corpus is built so far. The sections below describe the intended design unless they say otherwise.
+This project is in progress. Only the corpus and its chunks are built so far. The sections below describe the intended design unless they say otherwise.
 
 | Part | Status |
 |---|---|
 | Corpus files and `data/manifest.csv` | Done |
 | `scripts/fetch_corpus.py` | Done |
-| Section-level chunks and index | Planned |
+| Section-level chunks (`scripts/build_chunks.py`) | Done |
+| Index | Planned |
 | Retrieval, agent loop and tools | Planned |
 | FastAPI service | Planned |
 | Evaluation set and results | Planned |
@@ -107,7 +108,7 @@ The corpus is 35 official Thai government documents. Thai statutes and official 
 
 ### Manifest
 
-Every file is listed in `data/manifest.csv` with its URL, publication date, effective date, status and SHA-256 hash. When a law changes, add a row for the new version and mark the old row `superseded`.
+Every file is listed in `data/manifest.csv` with its URL, publication date, effective date, status, SHA-256 hash, `law` code, `kind` (`consolidated`, `amendment`, `rate` or `secondary`) and `amendment_no`. When a law changes, add a row for the new version and mark the old row `superseded`.
 
 | `status` | Rows |
 |---|---:|
@@ -155,6 +156,20 @@ The 19 rows that did not verify from their URLs:
 
 **TLS.** The script uses `curl` because Python rejected the certificates from several `.go.th` servers. Certificate checks stay on. This was tested on Windows; `curl` on other systems may still report `DOWNLOAD FAILED` for those servers.
 
+### Building the chunks
+
+Requires `pip install pymupdf`.
+
+```bash
+python scripts/build_chunks.py
+```
+
+This writes `data/processed/chunks.jsonl`, with one chunk per section (long sections are split into parts).
+
+- **In-force wording comes from the consolidated texts.** An amendment already included in its consolidated text is skipped. The consolidated footnotes set each section's `amendment_no` and `effective_date`, so Section 41 cites Amendment No. 9 and 2025-12-07.
+- **Amendments newer than the consolidated text are merged.** Only the Disability Act needs this. A replaced section becomes `superseded`. A changed paragraph becomes its own chunk with `change: "partial"`, and the older section gets `partly_amended_by`, because it still contains the outdated paragraph.
+- **Not indexed:** rate announcements and secondary material, schedules, statements of reasons, and the transitional clauses of amending Acts.
+
 ## Evaluation
 
 *Planned.* The evaluation set will live in `eval/questions.jsonl`. It will have about 30 hand-labelled questions plus 5 out-of-scope questions, each labelled with the correct section(s), reference answer and expected number.
@@ -186,7 +201,7 @@ The 19 rows that did not verify from their URLs:
 
 ## Project structure
 
-Only `data/manifest.csv`, `data/raw/`, `scripts/fetch_corpus.py` and this README exist so far. Everything else is planned.
+Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/fetch_corpus.py`, `scripts/build_chunks.py` and this README exist so far. Everything else is planned.
 
 ```
 .
@@ -197,7 +212,8 @@ Only `data/manifest.csv`, `data/raw/`, `scripts/fetch_corpus.py` and this README
 │   └── rates.csv             # versioned official rates for get_rate
 ├── scripts/
 │   ├── fetch_corpus.py       # verify sha256, download missing sources
-│   └── build_index.py        # PDF → text → sections → index
+│   ├── build_chunks.py       # PDF → text → sections → chunks
+│   └── build_index.py        # chunks → index
 ├── src/
 │   ├── retrieval/            # BM25, embeddings, hybrid, min_score
 │   ├── agent/                # agent loop and tools
