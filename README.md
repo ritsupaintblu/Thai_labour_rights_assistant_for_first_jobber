@@ -16,7 +16,8 @@ This project is in progress. Only the corpus and its chunks are built so far. Th
 | Index | Planned |
 | Retrieval, agent loop and tools | Planned |
 | FastAPI service | Planned |
-| Evaluation set and results | Planned |
+| Evaluation questions (`eval/questions.jsonl`) | Done |
+| Evaluation results | Planned |
 
 ---
 
@@ -168,14 +169,18 @@ This writes `data/processed/chunks.jsonl`, with one chunk per section (long sect
 
 ## Evaluation
 
-*Planned.* The evaluation set will live in `eval/questions.jsonl`. It will have about 30 hand-labelled questions plus 5 out-of-scope questions, each labelled with the correct section(s), reference answer and expected number.
+The evaluation set is in `eval/questions.jsonl`: 50 labelled questions plus 10 out-of-scope questions, each with the correct section(s), reference answer and expected number. The evals themselves are planned.
+
+`python eval/check_questions.py` checks the labels against the chunks: each section must be in force and contain the quoted evidence, each formula must give the expected number, and out-of-scope terms must not appear in the corpus. Rerun it after rebuilding the chunks.
+
+**Label limits.** The 5% Social Security rate in `T04`, `C05`, `C06` and `C12` is not in the corpus; it comes from secondary sources and must go into `rates.csv`. `C03`, `C04` and `C10` assume an hourly rate of monthly wage / 30 / 8, which the Act does not define. `T09` and the wage base in `T04`, `T05`, `T12`, `C05`, `C06` and `C12` were read by eye from PDFs without usable text.
 
 | Question type | Count | Purpose |
 |---|---|---|
-| General rights | 14 | Everyday questions |
-| **Trap questions** | 10 | Outdated or draft answers are wrong (e.g. maternity leave 120 vs 98 days, annual leave 6 vs 10 days, SSO maximum 875 vs 750 baht) |
-| Calculations | 6 | Severance, overtime, contributions |
-| Out of scope | 5 | The law doesn't say, so the assistant must answer "not found" |
+| General rights | 24 | Everyday questions |
+| **Trap questions** | 14 | Outdated or draft answers are wrong (e.g. maternity leave 120 vs 98 days, annual leave 6 vs 10 days, SSO maximum 875 vs 750 baht) |
+| Calculations | 12 | Severance, overtime, contributions |
+| Out of scope | 10 | The law doesn't say, so the assistant must answer "not found" |
 
 | Eval | Metric | Baseline | Compared against |
 |---|---|---|---|
@@ -191,9 +196,9 @@ This writes `data/processed/chunks.jsonl`, with one chunk per section (long sect
 | Eval | Baseline | This system |
 |---|---|---|
 | Retrieval recall@5 | – | – |
-| Trap questions correct (/10) | – | – |
-| Calculation exact match (/6) | – | – |
-| Out-of-scope handled (/5) | – | – |
+| Trap questions correct (/14) | – | – |
+| Calculation exact match (/12) | – | – |
+| Out-of-scope handled (/10) | – | – |
 
 ## Project structure
 
@@ -285,7 +290,7 @@ python eval/run.py
 
 - **Frozen corpus.** Answers reflect the law as of 1 November 2026. Changes after that date are not included. For example, the 2027 minimum wage was still undecided at that date.
 - **Small model.** `gemma-4-E4B-it` may pick the wrong tool or misread multi-section questions. Tool calls will be logged for failure analysis.
-- **Small, single-labeller eval set.** About 30 questions labelled by one person, so results will indicate direction rather than precise accuracy.
+- **Small, single-labeller eval set.** 60 questions labelled by one person, so results will indicate direction rather than precise accuracy.
 - **No interpretation.** The assistant reports what the statute says. It does not cover court rulings, company policies or employment contracts that give more than the legal minimum.
 
 ## Future work

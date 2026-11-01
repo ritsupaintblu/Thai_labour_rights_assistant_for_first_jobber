@@ -21,10 +21,10 @@ import pymupdf
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "read" / "Update.pdf"
 FONT_DIR = Path("C:/Windows/Fonts")
-EVAL_QUESTIONS = 35  # 30 questions + 5 out of scope
+EVAL_QUESTIONS = 60  # 50 questions + 10 out of scope
 
 # Tasks the repo cannot prove. Add a task's key here once it has really been checked
-CONFIRMED = set()
+CONFIRMED = {"figures"}
 
 DONE, ACTIVE, TODO = "Done", "In progress", "Not started"
 
@@ -92,7 +92,7 @@ def plan():
             ("Download required files, check links, confirm section numbers", corpus_task()),
             ("Write manifest.csv + fetch_corpus.py", manifest_task()),
             ("Convert PDF to text, section-level chunks and metadata", chunks_task()),
-            ("Write the test set: 30 questions + 5 out of scope, with labels", questions_task()),
+            ("Write the test set: 50 questions + 10 out of scope, with labels", questions_task()),
             ("Check severance and overtime figures against the Act text", manual(
                 "figures", "Checked against the Act text", "Not recorded as checked yet")),
         ]),
