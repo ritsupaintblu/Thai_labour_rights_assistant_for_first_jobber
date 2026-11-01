@@ -1,0 +1,9 @@
+#!/bin/sh
+# Refresh read/Update.pdf. A commit has already succeeded here, so a failure only warns.
+for py in ".venv/Scripts/python.exe" ".venv/bin/python" "$LOCALAPPDATA/Programs/Python/Python313/python.exe" python; do
+    if "$py" -B -c "import pymupdf" 2>/dev/null; then
+        "$py" -B scripts/update_status.py || echo "warning: read/Update.pdf was not updated (is it open in another program?)"
+        exit 0
+    fi
+done
+echo "warning: read/Update.pdf was not updated: no Python with PyMuPDF found"

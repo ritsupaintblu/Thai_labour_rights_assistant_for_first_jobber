@@ -246,6 +246,8 @@ python scripts/build_chunks.py
 
 `requirements.txt` only lists PyMuPDF for now, which is all the chunk build needs.
 
+To refresh the progress report `read/Update.pdf` after every commit, turn on the hook once per clone with `git config core.hooksPath .githooks`. The PDF is not committed.
+
 ### 3. Configure (planned)
 
 The API key and base URL are read from the environment, never committed:
