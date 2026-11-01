@@ -20,6 +20,7 @@ is the in-force wording, and its footnotes say which amendment last changed each
 import argparse
 import csv
 import hashlib
+import io
 import json
 import re
 import sys
@@ -86,6 +87,12 @@ BROKEN_MARKS = {
 
 
 # ---------------------------------------------------------------- 1. PDF -> text
+def page_blocks(page) -> list:
+    data = page.get_text("dict", sort=True)
+    if not isinstance(data, dict) or not isinstance(data.get("blocks"), list):
+        raise TypeError(f"unexpected get_text result on page {page.number + 1}: {type(data).__name__}")
+    return data["blocks"]
+
 def pdf_to_text(path: Path):
     """Return (body, notes). The body drops the watermark and superscript footnote markers,
     which otherwise fuse onto section numbers ('มาตรา ๔๑๒๗' = section 41, footnote 27).
@@ -93,7 +100,8 @@ def pdf_to_text(path: Path):
     import pymupdf
     pymupdf.TOOLS.mupdf_display_errors(False)
     with pymupdf.open(path) as pdf:
-        pages = [page.get_text("dict", sort=True)["blocks"] for page in pdf]
+        pages = [page_blocks(page) for page in pdf]
+
 
     sizes = Counter()
     for blocks in pages:
@@ -183,6 +191,8 @@ def normalize(text: str, source_id: str = "") -> str:
 
 def section_key(sec: str) -> tuple:
     m = re.fullmatch(r"(\d+)(?:/(\d+)|\s(\S+))?", sec)
+    if m is None:
+        raise ValueError(f"bad section number: {sec!r}")
     sub = int(m.group(2)) if m.group(2) else SUFFIXES.index(m.group(3)) + 2 if m.group(3) else 0
     return (int(m.group(1)), sub)
 
@@ -233,6 +243,7 @@ def split_sections(text: str):
             chapter = line.strip()
         elif i in headers:
             m = SECTION_RE.match(line)
+            assert m is not None  # headers only holds lines that matched SECTION_RE
             if current:
                 sections.append(current)
             current = {"section": m.group(1), "chapter": chapter, "lines": [m.group(2) or ""]}
@@ -273,14 +284,14 @@ def act_name_of(title: str) -> str:
 # ---------------------------------------------------------------- 3b. amending Act -> replaced / added sections
 CLAUSE_END = r"”\s*(?=\n\s*มาตรา\s*\d+\s|\n\s*ผู้รับสนอง|\Z)"
 REPLACE_RE = re.compile(
-    r"ให้ยกเลิกความในมาตรา\s*(" + SECTION_NO + r")\s*แห่ง.*?ให้ใช้ความต่อไปนี้แทน\s*“(.*?)" + CLAUSE_END,
+    r"ให้ยกเลิกความในมาตรา\s*(" + SECTION_NO + r")(?:\s*(?:และ\s*)?มาตรา\s*" + SECTION_NO + r")*\s*แห่ง.*?ให้ใช้ความต่อไปนี้แทน\s*“(.*?)" + CLAUSE_END,
     re.S)
 ADD_RE = re.compile(
-    r"ให้เพิ่มความต่อไปนี้เป็นมาตรา\s*(" + SECTION_NO + r")(?:\s*(?:และ\s*)?มาตรา\s*" + SECTION_NO + r")*\s*แห่ง.*?“(.*?)" + CLAUSE_END,
+    r"ให้เพิ่มความต่อไปนี้เป็นมาตรา\s*(" + SECTION_NO + r")(?:\s*(?:และ\s*)?มาตรา\s*" + SECTION_NO + r")*\s*(?:ของหมวด[^“]*?)?แห่ง.*?“(.*?)" + CLAUSE_END,
     re.S)
 # Part of a section: "ให้ยกเลิกความในวรรคสามของมาตรา 19", "ให้เพิ่มความต่อไปนี้เป็นวรรคสี่ของมาตรา 19"
 PARTIAL_RE = re.compile(
-    r"ให้(?:ยกเลิกความใน|เพิ่มความต่อไปนี้เป็น)((?:(?!มาตรา).){1,80}?)\s*(?:ของ|ใน)\s*มาตรา\s*(" + SECTION_NO + r")\s*แห่ง.*?“(.*?)" + CLAUSE_END,
+    r"ให้(?:ยกเลิกความใน|เพิ่มความต่อไปนี้เป็น)((?:(?!มาตรา).){1,200}?)\s*(?:ของ|ใน)\s*มาตรา\s*(" + SECTION_NO + r")\s*แห่ง.*?“(.*?)" + CLAUSE_END,
     re.S)
 CHANGE_HINT_RE = re.compile(r"ให้ยกเลิกความใน|ให้เพิ่มความ")
 
@@ -289,24 +300,26 @@ def parse_amendment(text: str):
     """Return the changed sections, plus anything that needs a human.
     change = "replace" / "add": the quoted text is the whole section.
     change = "partial": only one paragraph or item changed, so the older text stays in force too."""
-    found, spans = [], []
+    found, spans, unsplit = [], [], []
     for kind, rx in (("replace", REPLACE_RE), ("add", ADD_RE)):
         for m in rx.finditer(text):
-            # one clause can add several sections: "ให้เพิ่มความ...เป็นมาตรา 20/1 มาตรา 20/2 ...".
+            # one clause can change several sections: "ให้ยกเลิกความในมาตรา 7 มาตรา 8 และมาตรา 9 แห่ง...".
             # Split only at those numbers, not at a cross-reference that wrapped to a line start
-            named = re.findall(r"มาตรา\s*(" + SECTION_NO + r")", m.group(0)[:m.start(2) - m.start()])
-            named = named[:1] if kind == "replace" else named
+            named = re.findall(r"มาตรา\s*(" + SECTION_NO + r")", m.group(0).split("แห่ง")[0])
             header = "|".join(re.escape(n) for n in named)
             pieces = re.split(r"(?m)^\s*มาตรา\s*(" + header + r")(?:\s+|$)", m.group(2).strip())
+            spans.append(m.span())
+            if pieces[1::2] != named:  # a wrapped cross-reference broke the split: don't guess
+                unsplit.append(text[m.start(): m.start() + 160].replace("\n", " "))
+                continue
             for sec, body in zip(pieces[1::2], pieces[2::2]):
                 found.append({"section": sec, "change": kind, "text": clean_lines(body)})
-            spans.append(m.span())
     for m in PARTIAL_RE.finditer(text):
         if not any(a <= m.start() < b for a, b in spans):
             what = re.sub(r"\s+", " ", m.group(1)).strip()
             found.append({"section": m.group(2), "change": "partial", "what": what, "text": clean_lines(m.group(3))})
             spans.append(m.span())
-    review = []
+    review = unsplit
     for m in CHANGE_HINT_RE.finditer(text):
         if not any(a <= m.start() < b for a, b in spans):
             review.append(text[m.start(): m.start() + 160].replace("\n", " "))
@@ -385,7 +398,8 @@ def merge(consolidated, amendments):
 
 # ---------------------------------------------------------------- main
 def main():
-    sys.stdout.reconfigure(encoding="utf-8")  # the Windows console default cannot print Thai
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding="utf-8")  # the Windows console default cannot print Thai
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", default="data/manifest.csv")

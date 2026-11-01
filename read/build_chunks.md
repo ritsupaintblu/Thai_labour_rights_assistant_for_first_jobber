@@ -4,14 +4,13 @@ Nov 1, 2026 · @riri
 
 ## Summary
 
-The first `build_chunks.py` did not work on the real PDFs, so it was rewritten. It now builds 938 section-level chunks from 10 Acts.
+The first `build_chunks.py` did not work on the real PDFs, so it was rewritten. It now builds 1,101 section-level chunks from 10 laws.
 
 | Status | Chunks | Meaning |
 | --- | --- | --- |
-| `in_force` | 864 | Current text, usable for answers |
-| `repealed_check` | 60 | Foreign Workers Act 2551, must be excluded from retrieval |
+| `in_force` | 1,039 | Current text, usable for answers |
 | `repealed` | 11 | Section text reads "(ยกเลิก)" |
-| `superseded` | 3 | Disability Act sections fully replaced by Amendment No. 2 |
+| `superseded` | 51 | Disability Act and Foreign Workers Royal Ordinance sections fully replaced by Amendment No. 2 |
 
 | File | Change |
 | --- | --- |
@@ -43,6 +42,8 @@ The original script had only been tested on simulated text, and most failures ap
 | Metadata | Every consolidated section would cite the Act's own date (1998 for LPA) | Read `amendment_no` per section from footnotes, so section 41 cites No. 9 and 2025-12-07 |
 | Metadata | The repealed Foreign Workers Act was hard-coded as `in_force` | Status now comes from the manifest |
 | Amendments | The parser missed the last clause, multi-section additions and paragraph-level changes | Handled all three; changed paragraphs become `change: "partial"` chunks |
+| Amendments | The 2561 Foreign Workers amendment replaces several sections in one clause, which stayed in force with outdated wording | Split these clauses by section; a clause that can't be split cleanly goes to review by hand |
+| Corpus | The Foreign Workers Act 2551 was repealed by the 2560 Royal Ordinance, section 3 | Replaced it with the 2560 Royal Ordinance and added its 2561 amendment |
 | Console | Printing Thai crashed on a default Windows console | Set stdout to UTF-8 |
 
 The consolidated LPA text already includes Amendment No. 9. That is why the unreadable font in `lpa_no9` does not block the corpus.
@@ -62,7 +63,7 @@ Each manifest row is read and its file is found by SHA-256. The row then takes o
 
 The last two paths are merged, with a newer section superseding the older one, and written to `data/processed/chunks.jsonl`.
 
-Only the Disability Act has a newer amendment. Its original text has no consolidated version in the corpus, so it is treated as consolidated through No. 0.
+Only the Disability Act and the Foreign Workers Royal Ordinance have a newer amendment. Their original texts have no consolidated version in the corpus, so they are treated as consolidated through No. 0.
 
 ## Verification
 
@@ -76,9 +77,12 @@ Automated checks passed, but nobody has read the output against the PDFs line by
 | Leftovers in chunks: watermarks, page headers, broken characters | 0 |
 | Duplicate chunk IDs | 0 |
 | LPA sections 41 and 59, read directly | 120 days of leave, up to 60 paid, Amendment No. 9, effective 2025-12-07 |
-| `fetch_corpus.py` after the manifest change | 35 of 35 verified |
+| `fetch_corpus.py` after the manifest change | 36 of 36 verified |
+| Adding the Foreign Workers Royal Ordinance | The other laws' 878 chunks stayed identical |
 
-Three limits remain:
+Four limits remain:
+
+- The Foreign Workers amendment's sections were not compared with a consolidated text, because the corpus has none.
 
 - The comparison covered only sections last changed by a readable amendment. No. 9, EMP No. 2 and EMP No. 3 are unreadable, so sections they changed could not be cross-checked.
 - SSA No. 4 yielded no parsed sections, so sections it last changed were not compared either.
@@ -86,12 +90,12 @@ Three limits remain:
 
 ## Open issues
 
-The Foreign Workers Act and the unreadable rate files need action before retrieval and `get_rate` can rely on this corpus.
+The partly amended sections and the unreadable rate files need action before retrieval and `get_rate` can rely on this corpus.
 
 | Issue | Effect | Next step |
 | --- | --- | --- |
-| Foreign Workers Act 2551 was probably replaced by a 2560 Royal Ordinance, from memory and not yet verified | That topic has no in-force source | Exclude `repealed_check`; verify, and add the current law |
-| Disability Act: 7 chunks across sections 4, 13, 16, 19, 21 and 26 contain outdated wording | Old wording is still `in_force`, flagged with `partly_amended_by` | Handle the flag in retrieval, or merge by hand |
+| Disability Act: 7 chunks across sections 4, 13, 16, 19, 21 and 26 contain outdated wording. Foreign Workers Royal Ordinance: sections 4, 5, 28, 38, 64, 67, 69, 76, 98, 100 and 133 do too | Old wording is still `in_force`, flagged with `partly_amended_by` | Handle the flag in retrieval, or merge by hand |
+| Amendments to the Foreign Workers Royal Ordinance after No. 2 were not confirmed | Later changes could be missing | Check the Royal Gazette or the Department of Employment |
 | `min_wage_no14` is a scan; `ssa_wage_base_2568`, `ewf_rate_2568` and `ewf_start_2569` have unreadable fonts | Their text cannot be extracted for `rates.csv` | Type the rates by hand or run OCR |
 | Schedules and amending Acts' transitional clauses are not indexed | Questions on them, such as the LPA fee schedule, will not find text | Add them if the eval set needs them |
 | Wrapped lines stay split inside chunks | May slightly hurt BM25 | Measure in the retrieval eval |

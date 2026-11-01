@@ -112,10 +112,9 @@ Every file is listed in `data/manifest.csv` with its URL, publication date, effe
 
 | `status` | Rows |
 |---|---:|
-| `in_force` | 28 |
+| `in_force` | 30 |
 | `superseded` | 3 |
 | `secondary` | 3 |
-| `repealed_check` | 1 |
 
 `manifest.csv` is read with `encoding="utf-8-sig"`, so it works even when saved from Excel (which adds a BOM).
 
@@ -141,24 +140,21 @@ For each manifest row, the script looks for a file with the same SHA-256 anywher
 
 ### Sources that can't be re-downloaded
 
-Use the files in `data/raw/` as the corpus. A check on 2026-11-01, with the local files present and then with an empty folder, gave these results:
+Use the files in `data/raw/` as the corpus. With the archived files, 36 of 36 rows verify (checked 2026-11-02).
 
-- **With the archived files:** 35 of 35 verified.
-- **Downloading from the URLs:** 16 of 35 verified.
-
-The 19 rows that did not verify from their URLs:
+A full download test on 2026-11-01, with an empty folder, covered the 35 rows at that time. These rows do not verify from their URLs, including `foreign_workers` after its URL changed and the later `foreign_workers_no2`:
 
 | Rows | Result | Reason |
 |---|---|---|
-| `fishing_labour`, `soe_labour`, `home_work`, `ssa_consolidated`, `ssa_no2`, `ssa_no3`, `ssa_no4`, `wca_consolidated`, `min_wage_no14`, `emp_no2`, `emp_no3`, `foreign_workers`, `maritime_labour`, `disability`, `disability_no2` | `NOT A DOCUMENT` | `mol.go.th` serves a bot-protection page to scripts instead of the PDF. |
+| `fishing_labour`, `soe_labour`, `home_work`, `ssa_consolidated`, `ssa_no2`, `ssa_no3`, `ssa_no4`, `wca_consolidated`, `min_wage_no14`, `emp_no2`, `emp_no3`, `maritime_labour`, `disability`, `disability_no2` | `NOT A DOCUMENT` | `mol.go.th` serves a bot-protection page to scripts instead of the PDF. |
 | `ewf_info1`, `ewf_info2`, `ewf_info3` | `NOT A DOCUMENT` | The sources are web articles, archived as PNG screenshots. The manifest holds the screenshot's hash, so a download can never match. The URL only records where the content came from. |
-| `wca_no2` | `DOWNLOAD FAILED` | `www.ratchakitcha.soc.go.th` returns HTTP 403. |
+| `wca_no2`, `foreign_workers`, `foreign_workers_no2` | `DOWNLOAD FAILED` | `www.ratchakitcha.soc.go.th` returns HTTP 403. |
 
 **TLS.** The script uses `curl` because Python rejected the certificates from several `.go.th` servers. Certificate checks stay on. This was tested on Windows; `curl` on other systems may still report `DOWNLOAD FAILED` for those servers.
 
 ### Building the chunks
 
-Requires `pip install pymupdf`.
+Requires `pip install -r requirements.txt`, which pins PyMuPDF. After upgrading it, rebuild and run `git diff --stat data/processed/chunks.jsonl`: a difference means the upgrade changed the extraction, so review it before committing.
 
 ```bash
 python scripts/build_chunks.py
@@ -167,7 +163,7 @@ python scripts/build_chunks.py
 This writes `data/processed/chunks.jsonl`, with one chunk per section (long sections are split into parts).
 
 - **In-force wording comes from the consolidated texts.** An amendment already included in its consolidated text is skipped. The consolidated footnotes set each section's `amendment_no` and `effective_date`, so Section 41 cites Amendment No. 9 and 2025-12-07.
-- **Amendments newer than the consolidated text are merged.** Only the Disability Act needs this. A replaced section becomes `superseded`. A changed paragraph becomes its own chunk with `change: "partial"`, and the older section gets `partly_amended_by`, because it still contains the outdated paragraph.
+- **Amendments newer than the consolidated text are merged.** Only the Disability Act and the Foreign Workers Royal Ordinance need this. A replaced section becomes `superseded`. A changed paragraph becomes its own chunk with `change: "partial"`, and the older section gets `partly_amended_by`, because it still contains the outdated paragraph.
 - **Not indexed:** rate announcements and secondary material, schedules, statements of reasons, and the transitional clauses of amending Acts.
 
 ## Evaluation
@@ -201,7 +197,7 @@ This writes `data/processed/chunks.jsonl`, with one chunk per section (long sect
 
 ## Project structure
 
-Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/fetch_corpus.py`, `scripts/build_chunks.py` and this README exist so far. Everything else is planned.
+Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/fetch_corpus.py`, `scripts/build_chunks.py`, `requirements.txt` and this README exist so far. Everything else is planned.
 
 ```
 .
@@ -223,12 +219,13 @@ Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/f
 │   ├── questions.jsonl       # labelled test set
 │   ├── run.py                # runs all evals and baselines
 │   └── results/              # CSV outputs
+├── requirements.txt          # pinned Python dependencies
 └── README.md
 ```
 
 ## Getting started
 
-Only cloning and verifying the corpus work today. The remaining steps show how the finished project will run.
+Only steps 1 and 2 work today. The remaining steps show how the finished project will run.
 
 ### 1. Get the code and verify the corpus
 
@@ -238,13 +235,16 @@ cd Thai_labour_rights_assistant_for_first_jobber
 python scripts/fetch_corpus.py
 ```
 
-### 2. Install (planned)
+### 2. Install and build the chunks
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+python scripts/build_chunks.py
 ```
+
+`requirements.txt` only lists PyMuPDF for now, which is all the chunk build needs.
 
 ### 3. Configure (planned)
 
