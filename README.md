@@ -35,17 +35,14 @@ For each manifest row, the script looks for a file with the same SHA-256 anywher
 Use the files in `data/raw/` as the corpus. A check on 2026-11-01, with the local files present and then with an empty folder, gave these results:
 
 - **With the archived files:** 35 of 35 verified.
-- **Downloading from the URLs:** 15 of 35 verified.
+- **Downloading from the URLs:** 16 of 35 verified.
 
-The 20 rows that did not verify from their URLs:
+The 19 rows that did not verify from their URLs:
 
 | Rows | Result | Reason |
 |---|---|---|
 | `fishing_labour`, `soe_labour`, `home_work`, `ssa_consolidated`, `ssa_no2`, `ssa_no3`, `ssa_no4`, `wca_consolidated`, `min_wage_no14`, `emp_no2`, `emp_no3`, `foreign_workers`, `maritime_labour`, `disability`, `disability_no2` | `NOT A DOCUMENT` | `mol.go.th` serves a bot-protection page to scripts instead of the PDF. |
 | `ewf_info1`, `ewf_info2`, `ewf_info3` | `NOT A DOCUMENT` | The sources are web articles, archived as PNG screenshots. The manifest holds the screenshot's hash, so a download can never match. The URL only records where the content came from. |
 | `wca_no2` | `DOWNLOAD FAILED` | `www.ratchakitcha.soc.go.th` returns HTTP 403. |
-| `emp_consolidated` | `HASH MISMATCH` | See below. |
-
-**Known issue: `emp_consolidated`.** The URL serves a different PDF from the archived copy. Both have 33 pages, but the embedded dates differ: the archived copy was created in 2018 (B.E. 2561) and the copy at the URL in 2009. The text has not been compared yet, so the manifest's `url` or `sha256` for this row may still need correcting.
 
 **TLS.** The script uses `curl` because Python rejected the certificates from several `.go.th` servers. Certificate checks stay on. This was tested on Windows; `curl` on other systems may still report `DOWNLOAD FAILED` for those servers.
