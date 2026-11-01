@@ -4,7 +4,7 @@ Nov 1, 2026 · @riri
 
 ## Summary
 
-The first `build_chunks.py` did not work on the real PDFs, so it was rewritten. It now builds 938 section-level chunks from 10 Acts, and nothing is committed yet.
+The first `build_chunks.py` did not work on the real PDFs, so it was rewritten. It now builds 938 section-level chunks from 10 Acts.
 
 | Status | Chunks | Meaning |
 | --- | --- | --- |
@@ -19,7 +19,7 @@ The first `build_chunks.py` did not work on the real PDFs, so it was rewritten. 
 | `data/processed/chunks.jsonl` | New output, about 1.6 MB |
 | `data/manifest.csv` | Added `law`, `kind` and `amendment_no`; retitled `emp_consolidated` as including No. 3 |
 | `README.md` | Added the build step and updated the status table |
-| `chunks/build_chunks.py` | Old copy, still staged and not used; needs removing |
+| `chunks/build_chunks.py` | Old copy, removed |
 
 ## Problems found and fixes
 
@@ -96,7 +96,6 @@ The Foreign Workers Act and the unreadable rate files need action before retriev
 | Schedules and amending Acts' transitional clauses are not indexed | Questions on them, such as the LPA fee schedule, will not find text | Add them if the eval set needs them |
 | Wrapped lines stay split inside chunks | May slightly hurt BM25 | Measure in the retrieval eval |
 | `amendment_no` tracks only the Act's own amendments | Sections reworded by the พินัย Act, such as section 145, cite an older date | Add a note or a separate field for those sections |
-| Old script is still staged | Two copies of the script in the repo | Run `git rm -f chunks/build_chunks.py` |
 
 To rebuild the chunks:
 
