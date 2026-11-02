@@ -24,7 +24,7 @@ FONT_DIR = Path("C:/Windows/Fonts")
 EVAL_QUESTIONS = 100
 
 # Tasks the repo cannot prove. Add a task's key here once it has really been checked
-CONFIRMED = {"figures"}
+CONFIRMED = {"figures", "retrieval", "eval1"}
 
 DONE, ACTIVE, TODO = "Done", "In progress", "Not started"
 

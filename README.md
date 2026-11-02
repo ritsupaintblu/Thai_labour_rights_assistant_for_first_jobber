@@ -6,15 +6,17 @@ An LLM-powered assistant that answers questions about Thai employee rights, usin
 
 ## Project status
 
-This project is in progress. Only the corpus and its chunks are built so far. The sections below describe the intended design unless they say otherwise.
+This project is in progress. The corpus, its chunks and the retrievers are built so far. The sections below describe the intended design unless they say otherwise.
 
 | Part | Status |
 |---|---|
 | Corpus files and `data/manifest.csv` | Done |
 | `scripts/fetch_corpus.py` | Done |
 | Section-level chunks (`scripts/build_chunks.py`) | Done |
-| Index | Planned |
-| Retrieval, agent loop and tools | Planned |
+| Index (`scripts/build_index.py`) | Done |
+| Retrievers: BM25, BM25 + PyThaiNLP, embeddings, hybrid, reranked (`src/retrieval/`) | Done |
+| Retrieval evaluation (`eval/run_retrieval.py`) | Done |
+| Agent loop and `search_law`, `calculate` tools | Planned |
 | FastAPI service | Planned |
 | Evaluation questions (`eval/questions.jsonl`) | Done |
 | Official rates (`data/rates.csv`) and `get_rate` | Done |
@@ -172,6 +174,44 @@ This writes `data/processed/chunks.jsonl`, with one chunk per section (long sect
 - **Amendments newer than the consolidated text are merged.** Only the Disability Act and the Foreign Workers Royal Ordinance need this. A replaced section becomes `superseded`. A changed paragraph becomes its own chunk with `change: "partial"`, and the older section gets `partly_amended_by`, because it still contains the outdated paragraph.
 - **Not indexed:** rate announcements and secondary material, schedules, statements of reasons, and the transitional clauses of amending Acts.
 
+### Retrieval
+
+```bash
+python scripts/build_index.py
+```
+
+This embeds the in-force chunks into `data/index/embeddings.npz`, which is not committed. The first run downloads the embedding model (4.3 GB). Rerun it after rebuilding the chunks: the retrievers refuse an index that does not match the chunks or the model.
+
+| Variant | Method |
+|---|---|
+| `bm25_raw` | BM25, splitting on whitespace only. This is the baseline |
+| `bm25_pythainlp` | BM25 with PyThaiNLP `newmm` word segmentation, after removing PDF line breaks inside Thai text |
+| `embedding` | Cosine similarity with `BAAI/bge-m3` at a pinned revision, which runs on CPU and supports Thai |
+| `hybrid` | Reciprocal rank fusion (k = 60) of `bm25_pythainlp` and `embedding` |
+| `reranked` | The top 50 from `hybrid`, reordered by the cross-encoder `BAAI/bge-reranker-v2-m3` at a pinned revision |
+
+```python
+from src.retrieval.hybrid import build_retrievers
+
+retrievers = build_retrievers()
+hits = retrievers["reranked"].search("ลาคลอดได้กี่วัน", k=5)
+hits[0].chunk["section"], hits[0].score, hits[0].parts
+```
+
+Each variant returns chunks, so two parts of a long section can both appear. Only `in_force` chunks are searched. A hybrid score only reflects rank, so `parts` also keeps each method's own score for the `min_score` floor. A `reranked` score is the cross-encoder's relevance, from 0 to 1.
+
+`python eval/run_retrieval.py` scores every variant on the 82 questions with gold sections and writes `eval/results_retrieval.csv`, overall and by question type:
+
+| Variant | recall@1 | recall@3 | recall@5 | MRR | nDCG@5 | Seconds per query (CPU) |
+|---|---|---|---|---|---|---|
+| `bm25_raw` | 0.000 | 0.018 | 0.018 | 0.015 | 0.010 | 0.00 |
+| `bm25_pythainlp` | 0.183 | 0.407 | 0.504 | 0.357 | 0.363 | 0.01 |
+| `embedding` | 0.514 | 0.695 | 0.764 | 0.683 | 0.674 | 0.29 |
+| `hybrid` | 0.382 | 0.628 | 0.713 | 0.579 | 0.581 | 0.27 |
+| `reranked` | 0.667 | 0.801 | 0.841 | 0.812 | 0.791 | 35.58 |
+
+The reranked settings were chosen on these same questions, so its scores may be optimistic. Reranking takes about 36 seconds per query on CPU. Five of the nine questions with no gold section in its top 5 (`T09`, `T16`, `T17`, `T20`, `C20`) take their figures from rate announcements, which are looked up with `get_rate` rather than searched.
+
 ### Official rates
 
 Rate files are not indexed. Their figures are in `data/rates.csv`, one row per rate and period, with the source `id` and clause. `src/agent/tools/get_rate.py` looks them up for a date:
@@ -214,7 +254,7 @@ The evaluation set is in `eval/questions.jsonl`: 100 questions, each with the co
 
 | Eval | Metric | Baseline | Compared against |
 |---|---|---|---|
-| Retrieval | recall@5, MRR | BM25 on raw text | BM25 + PyThaiNLP, embeddings, hybrid |
+| Retrieval | recall@k, MRR, nDCG | BM25 on raw text | BM25 + PyThaiNLP, embeddings, hybrid, reranked |
 | Answers | Correctness (LLM-as-judge, checked against our labels), citation accuracy | Gemma with no retrieval | RAG + agent; trap questions reported separately |
 | Calculations | Exact match on amounts | LLM does the arithmetic | `calculate` tool |
 | Refusals | Correct refusals vs false refusals | No `min_score` | `min_score` sweep |
@@ -226,7 +266,7 @@ The evaluation set is in `eval/questions.jsonl`: 100 questions, each with the co
 
 | Eval | Baseline | This system |
 |---|---|---|
-| Retrieval recall@5 | – | – |
+| Retrieval recall@5 | 0.018 | 0.841 |
 | Trap questions correct (/20) | – | – |
 | Calculation exact match (/18) | – | – |
 | Out-of-scope handled (/18) | – | – |
@@ -235,7 +275,7 @@ The evaluation set is in `eval/questions.jsonl`: 100 questions, each with the co
 
 ## Project structure
 
-Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/fetch_corpus.py`, `scripts/build_chunks.py`, `scripts/update_status.py`, `data/rates.csv`, `src/agent/tools/get_rate.py`, `tests/`, `eval/questions.jsonl`, `eval/check_questions.py`, `requirements.txt` and this README exist so far. Everything else is planned.
+Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/fetch_corpus.py`, `scripts/build_chunks.py`, `scripts/build_index.py`, `scripts/update_status.py`, `data/rates.csv`, `src/retrieval/`, `src/agent/tools/get_rate.py`, `tests/`, `eval/questions.jsonl`, `eval/check_questions.py`, `eval/run_retrieval.py`, `eval/results_retrieval.csv`, `requirements.txt` and this README exist so far. Everything else is planned.
 
 ```
 .
@@ -247,9 +287,9 @@ Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/f
 ├── scripts/
 │   ├── fetch_corpus.py       # verify sha256, download missing sources
 │   ├── build_chunks.py       # PDF → text → sections → chunks
-│   └── build_index.py        # chunks → index
+│   └── build_index.py        # chunks → embedding index
 ├── src/
-│   ├── retrieval/            # BM25, embeddings, hybrid, min_score
+│   ├── retrieval/            # BM25, embeddings, hybrid
 │   ├── agent/                # agent loop and tools
 │   ├── schemas.py            # Pydantic models
 │   └── api/                  # FastAPI app
@@ -263,7 +303,7 @@ Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/f
 
 ## Getting started
 
-Only steps 1 and 2 work today. The remaining steps show how the finished project will run.
+Only steps 1, 2 and 4 work today. The remaining steps show how the finished project will run.
 
 ### 1. Get the code and verify the corpus
 
@@ -282,8 +322,6 @@ pip install -r requirements.txt
 python scripts/build_chunks.py
 ```
 
-`requirements.txt` only lists PyMuPDF for now, which is all the chunk build needs.
-
 To refresh the progress report `read/Update.pdf` after every commit, turn on the hook once per clone with `git config core.hooksPath .githooks`. The PDF is not committed.
 
 ### 3. Configure (planned)
@@ -295,7 +333,7 @@ export OPENAI_API_KEY=...        # Windows PowerShell: $env:OPENAI_API_KEY="..."
 export OPENAI_BASE_URL=...
 ```
 
-### 4. Build the index (planned)
+### 4. Build the index
 
 ```bash
 python scripts/build_index.py
