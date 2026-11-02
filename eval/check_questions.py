@@ -13,12 +13,25 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPECTED_TYPES = {"general": 24, "trap": 14, "calculation": 12, "out_of_scope": 10}
+EXPECTED_TYPES = {"general": 30, "trap": 20, "calculation": 18, "out_of_scope": 18, "clarification": 8, "correction": 6}
+BEHAVIOR_BY_TYPE = {"out_of_scope": {"refuse"}, "clarification": {"ask_clarification"}, "correction": {"correct_premise"},
+                    "general": {"answer"}, "calculation": {"answer"}, "trap": {"answer", "correct_premise"}}
+NO_SOURCE = "ไม่มีข้อมูลใน corpus"
+REFUSALS = ("ไม่ทราบ เนื่องจาก", "I don't know because")
 
 
 def squeeze(text):
     # chunks keep the PDF's line breaks, which can fall in the middle of a phrase
     return re.sub(r"\s+", "", text)
+
+
+def expected_reference(question, section_sources, titles):
+    """The manifest titles a question's answer comes from, as they appear in reference_source."""
+    ids = [s for g in question["gold_sections"] for s in section_sources.get((g["law"], g["section"]), [])]
+    ids += question.get("gold_sources", [])
+    if not ids:
+        return NO_SOURCE
+    return "อ้างอิงจาก " + " และ ".join(dict.fromkeys(titles[i] for i in ids))
 
 
 def check(question, sections, in_force_text, source_ids):
@@ -40,6 +53,8 @@ def check(question, sections, in_force_text, source_ids):
     if question["type"] == "out_of_scope":
         if question["gold_sections"] or not question.get("not_found"):
             errors.append("out-of-scope questions need not_found and no gold sections")
+        if not question["reference_answer"].startswith(REFUSALS):
+            errors.append("out-of-scope reference answer must refuse")
         for term in question.get("absent_terms", []):
             if squeeze(term) in in_force_text:
                 errors.append(f"term is in the corpus, so this may not be out of scope: {term}")
@@ -47,6 +62,13 @@ def check(question, sections, in_force_text, source_ids):
         errors.append("no gold sections")
     if question["type"] == "trap" and not question.get("wrong_answer"):
         errors.append("trap question without wrong_answer")
+    behavior = question.get("expected_behavior")
+    if behavior not in BEHAVIOR_BY_TYPE[question["type"]]:
+        errors.append(f"expected_behavior {behavior} does not fit type {question['type']}")
+    if behavior == "ask_clarification" and (not question.get("missing_info") or question["expected_number"] is not None):
+        errors.append("a clarification question needs missing_info and no expected number")
+    if behavior == "correct_premise" and not question.get("misconception"):
+        errors.append("a correction question needs misconception")
     return errors
 
 
@@ -54,19 +76,24 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")  # the Windows console default cannot print Thai
     with open(ROOT / "data" / "processed" / "chunks.jsonl", encoding="utf-8") as f:
         chunks = [c for c in map(json.loads, f) if c["status"] == "in_force"]
-    sections = {}
+    sections, section_sources = {}, {}
     for c in chunks:
         key = (c["law"], c["section"])
         sections[key] = sections.get(key, "") + squeeze(c["text"])
+        section_sources.setdefault(key, []).append(c["source_id"])
     in_force_text = "".join(sections.values())
     with open(ROOT / "data" / "manifest.csv", encoding="utf-8-sig", newline="") as f:
-        source_ids = {r["id"] for r in csv.DictReader(f)}
+        titles = {r["id"]: r["title"].strip() for r in csv.DictReader(f)}
+    source_ids = set(titles)
     with open(ROOT / "eval" / "questions.jsonl", encoding="utf-8") as f:
         questions = [json.loads(line) for line in f if line.strip()]
 
     failed = 0
     for question in questions:
-        for error in check(question, sections, in_force_text, source_ids):
+        errors = check(question, sections, in_force_text, source_ids)
+        if question.get("reference_source") != expected_reference(question, section_sources, titles):
+            errors.append("reference_source does not match the manifest titles of its sources")
+        for error in errors:
             print(f"{question['id']}: {error}")
             failed += 1
     counts = Counter(q["type"] for q in questions)

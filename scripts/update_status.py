@@ -21,7 +21,7 @@ import pymupdf
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "read" / "Update.pdf"
 FONT_DIR = Path("C:/Windows/Fonts")
-EVAL_QUESTIONS = 60  # 50 questions + 10 out of scope
+EVAL_QUESTIONS = 100
 
 # Tasks the repo cannot prove. Add a task's key here once it has really been checked
 CONFIRMED = {"figures"}
@@ -92,7 +92,7 @@ def plan():
             ("Download required files, check links, confirm section numbers", corpus_task()),
             ("Write manifest.csv + fetch_corpus.py", manifest_task()),
             ("Convert PDF to text, section-level chunks and metadata", chunks_task()),
-            ("Write the test set: 50 questions + 10 out of scope, with labels", questions_task()),
+            ("Write the labelled test set: 100 questions", questions_task()),
             ("Check severance and overtime figures against the Act text", manual(
                 "figures", "Checked against the Act text", "Not recorded as checked yet")),
         ]),
@@ -110,7 +110,7 @@ def plan():
             ("Tools: search_law, calculate, get_rate, with allow-list and argument checks", from_files(
                 "tools", "Tools built", "src/agent/ does not exist", "src/agent/*tool*.py", "src/agent/tools/**/*.py")),
             ("Agent loop + stop conditions (cited answer or 5 steps)", from_files(
-                "agent", "Agent loop built", "src/agent/ does not exist", "src/agent/**/*.py")),
+                "agent", "Agent loop built", "No agent loop yet", "src/agent/*loop*.py", "src/agent/*agent*.py")),
             ("Sweep min_score, run Evals 2-4", from_files(
                 "evals", "Results recorded", "No agent results yet", "eval/results_*.csv", "eval/results/*.csv")),
             ("FastAPI POST /ask (SSE if time), demo with new questions", from_files(

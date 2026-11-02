@@ -17,6 +17,7 @@ This project is in progress. Only the corpus and its chunks are built so far. Th
 | Retrieval, agent loop and tools | Planned |
 | FastAPI service | Planned |
 | Evaluation questions (`eval/questions.jsonl`) | Done |
+| Official rates (`data/rates.csv`) and `get_rate` | Done |
 | Evaluation results | Planned |
 
 ---
@@ -45,12 +46,14 @@ You get back a validated JSON answer. The target format is:
 {
   "answer": "ลาคลอดได้ไม่เกิน 120 วันต่อการตั้งครรภ์ นายจ้างจ่ายค่าจ้างไม่เกิน 60 วัน",
   "citations": [
-    {"law": "LPA2541", "section": "41", "amendment_no": 9, "effective_date": "2025-12-07"}
+    {"law": "LPA2541", "section": "41", "amendment_no": 9, "effective_date": "2025-12-07", "source": "พ.ร.บ.คุ้มครองแรงงาน พ.ศ. 2541 (ฉบับรวมถึงฉบับที่ 9)"}
   ],
   "calculation": null,
   "as_of": "2026-11-01",
   "confidence": "high",
-  "not_found": false
+  "not_found": false,
+  "clarifying_question": null,
+  "correction": null
 }
 ```
 
@@ -66,7 +69,7 @@ FastAPI  POST /ask
 Agent loop (gemma-4-E4B-it, max 5 steps)
    ├── search_law(query, k)    → hybrid retrieval over law sections, min_score floor
    ├── calculate(kind, ...)    → severance / overtime / SSO contribution in Python
-   └── get_rate(name, as_of)   → official rates from a versioned CSV
+   └── get_rate(name, as_of, ...) → official rates from a versioned CSV
    │
    ▼
 Pydantic-validated JSON answer with citations + as_of date
@@ -76,7 +79,8 @@ Pydantic-validated JSON answer with citations + as_of date
 
 - **Section-level chunks with legal metadata.** Each chunk is one section (มาตรา) tagged with `law`, `section`, `amendment_no`, `effective_date` and `status`. Retrieval returns only `in_force` text.
 - **Thai-aware retrieval.** Thai has no spaces between words, so naive BM25 performs poorly. We compare raw BM25, BM25 with PyThaiNLP word segmentation, embeddings, and hybrid search.
-- **A `min_score` floor.** If nothing relevant is retrieved, the assistant answers "not found in the law" instead of guessing. The threshold is chosen from a sweep on the eval set, not by hand.
+- **A `min_score` floor.** If the corpus has no answer, the assistant says it doesn't know because the question is outside the scope of its content, instead of guessing. The threshold is chosen from a sweep on the eval set, not by hand.
+- **Ask, then correct.** If a question lacks details the answer depends on, such as tenure or wage, the assistant asks for them instead of assuming. If a question rests on a wrong belief, the assistant corrects it and cites the law.
 - **Calculations in code.** Small models are unreliable at arithmetic, so all money is computed by deterministic, input-checked Python functions.
 - **Safe tool use.** Tools are allow-listed. Arguments are validated before running. Retrieved text and tool results are treated as data, never as instructions.
 
@@ -100,6 +104,7 @@ The corpus is 35 official Thai government documents. Thai statutes and official 
 | Labour Protection Act B.E. 2541: consolidated text and Amendments No. 2–9 | 9 | Core employee rights, including work-from-home (No. 8, Section 23/1) and 120-day maternity leave, infant-care leave and spouse-support leave (No. 9, in force 7 Dec 2025) |
 | Social Security Act B.E. 2533: consolidated text and Amendments No. 2–4 | 4 | Contributions and benefits |
 | Ministerial Regulation on the Section 33 wage base, B.E. 2568 | 1 | Contribution ceiling of 17,500 baht from 1 Jan 2026 |
+| Ministerial Regulation on Social Security contribution rates, B.E. 2565 | 1 | Employee rate of 5% from 1 Jan 2023 |
 | Workmen's Compensation Act B.E. 2537: consolidated text and Amendment No. 2 | 2 | Compensation for work-related injury |
 | Wage Committee Announcement on minimum wage (No. 14) | 1 | Minimum wage by province |
 | Employee Welfare Fund: Ministerial Regulation on rates, B.E. 2568, and Royal Decree on collection, B.E. 2569 | 2 | Collection starts 1 Jan 2027 |
@@ -113,7 +118,7 @@ Every file is listed in `data/manifest.csv` with its URL, publication date, effe
 
 | `status` | Rows |
 |---|---:|
-| `in_force` | 30 |
+| `in_force` | 31 |
 | `superseded` | 3 |
 | `secondary` | 3 |
 
@@ -141,15 +146,15 @@ For each manifest row, the script looks for a file with the same SHA-256 anywher
 
 ### Sources that can't be re-downloaded
 
-Use the files in `data/raw/` as the corpus. With the archived files, 36 of 36 rows verify (checked 2026-11-02).
+Use the files in `data/raw/` as the corpus. With the archived files, 37 of 37 rows verify (checked 2026-11-02).
 
-A full download test on 2026-11-01, with an empty folder, covered the 35 rows at that time. These rows do not verify from their URLs, including `foreign_workers` after its URL changed and the later `foreign_workers_no2`:
+A full download test on 2026-11-01, with an empty folder, covered the 35 rows at that time. These rows do not verify from their URLs, including `foreign_workers` after its URL changed and the later `foreign_workers_no2` and `ssa_rate_2565`:
 
 | Rows | Result | Reason |
 |---|---|---|
 | `fishing_labour`, `soe_labour`, `home_work`, `ssa_consolidated`, `ssa_no2`, `ssa_no3`, `ssa_no4`, `wca_consolidated`, `min_wage_no14`, `emp_no2`, `emp_no3`, `maritime_labour`, `disability`, `disability_no2` | `NOT A DOCUMENT` | `mol.go.th` serves a bot-protection page to scripts instead of the PDF. |
 | `ewf_info1`, `ewf_info2`, `ewf_info3` | `NOT A DOCUMENT` | The sources are web articles, archived as PNG screenshots. The manifest holds the screenshot's hash, so a download can never match. The URL only records where the content came from. |
-| `wca_no2`, `foreign_workers`, `foreign_workers_no2` | `DOWNLOAD FAILED` | `www.ratchakitcha.soc.go.th` returns HTTP 403. |
+| `wca_no2`, `foreign_workers`, `foreign_workers_no2`, `ssa_rate_2565` | `DOWNLOAD FAILED` | `www.ratchakitcha.soc.go.th` returns HTTP 403. |
 
 **TLS.** The script uses `curl` because Python rejected the certificates from several `.go.th` servers. Certificate checks stay on. This was tested on Windows; `curl` on other systems may still report `DOWNLOAD FAILED` for those servers.
 
@@ -167,27 +172,53 @@ This writes `data/processed/chunks.jsonl`, with one chunk per section (long sect
 - **Amendments newer than the consolidated text are merged.** Only the Disability Act and the Foreign Workers Royal Ordinance need this. A replaced section becomes `superseded`. A changed paragraph becomes its own chunk with `change: "partial"`, and the older section gets `partly_amended_by`, because it still contains the outdated paragraph.
 - **Not indexed:** rate announcements and secondary material, schedules, statements of reasons, and the transitional clauses of amending Acts.
 
+### Official rates
+
+Rate files are not indexed. Their figures are in `data/rates.csv`, one row per rate and period, with the source `id` and clause. `src/agent/tools/get_rate.py` looks them up for a date:
+
+```python
+from src.agent.tools.get_rate import get_rate
+
+get_rate("sso_employee_rate_percent", "2026-11-01")                  # found: 5
+get_rate("min_wage_daily", "2026-11-01", province="นนทบุรี")          # found: 372
+get_rate("min_wage_daily", "2026-11-01", province="เชียงใหม่")         # needs_input: district
+get_rate("sso_wage_base_max", "2020-01-01")                          # not_found
+```
+
+The result's `status` is `found`, `needs_input` (ask the user for the items in `missing`), `not_found` (the table has no rate for that date, so don't guess) or `invalid`. A `found` result includes the source's manifest title and clause.
+
+The figures were typed by hand: the minimum wage from a scan, checked against the announcement's own summary table, and the others from the PDFs. To add a rate, add a row, end the previous period with `effective_to`, and run the tests:
+
+```bash
+python -m unittest discover -s tests -t .
+```
+
+The minimum wage announcement does not apply to government bodies, state enterprises, non-profit employers, employers of home workers, seagoing freight work, or agricultural work that is not year-round. `get_rate` does not check for these.
+
 ## Evaluation
 
-The evaluation set is in `eval/questions.jsonl`: 50 labelled questions plus 10 out-of-scope questions, each with the correct section(s), reference answer and expected number. The evals themselves are planned.
+The evaluation set is in `eval/questions.jsonl`: 100 questions, each with the correct section(s), reference answer, expected number, `expected_behavior` (`answer`, `refuse`, `ask_clarification` or `correct_premise`) and `reference_source`, which names the source files by their `manifest.csv` title. The evals themselves are planned.
 
-`python eval/check_questions.py` checks the labels against the chunks: each section must be in force and contain the quoted evidence, each formula must give the expected number, and out-of-scope terms must not appear in the corpus. Rerun it after rebuilding the chunks.
+`python eval/check_questions.py` checks the labels against the chunks: each section must be in force and contain the quoted evidence, each formula must give the expected number, out-of-scope terms must not appear in the corpus, out-of-scope answers must refuse, and each `reference_source` must match the manifest. Rerun it after rebuilding the chunks.
 
-**Label limits.** The 5% Social Security rate in `T04`, `C05`, `C06` and `C12` is not in the corpus; it comes from secondary sources and must go into `rates.csv`. `C03`, `C04` and `C10` assume an hourly rate of monthly wage / 30 / 8, which the Act does not define. `T09` and the wage base in `T04`, `T05`, `T12`, `C05`, `C06` and `C12` were read by eye from PDFs without usable text.
+**Label limits.** Severance for monthly wages assumes a daily rate of monthly wage / 30, which the Labour Protection Act does not define. `C19` assumes the ministry's compensation limits, which are not in the corpus, do not apply. `T09`, `T20`, the wage base in `T04`, `T05`, `T12`, `T18`, `C05`, `C06` and `C12`, and the Employee Welfare Fund figures in `T16`, `T17` and `C20` were read by eye from PDFs without usable text.
 
 | Question type | Count | Purpose |
 |---|---|---|
-| General rights | 24 | Everyday questions |
-| **Trap questions** | 14 | Outdated or draft answers are wrong (e.g. maternity leave 120 vs 98 days, annual leave 6 vs 10 days, SSO maximum 875 vs 750 baht) |
-| Calculations | 12 | Severance, overtime, contributions |
-| Out of scope | 10 | The law doesn't say, so the assistant must answer "not found" |
+| General rights | 30 | Everyday questions |
+| **Trap questions** | 20 | Outdated or draft answers are wrong (e.g. maternity leave 120 vs 98 days, annual leave 6 vs 10 days, SSO maximum 875 vs 750 baht) |
+| Calculations | 18 | Severance, overtime, contributions |
+| Out of scope | 18 | The corpus doesn't say, so the assistant must refuse: it doesn't know because the question is outside the scope of its content |
+| Clarification | 8 | Key details are missing, so the assistant must ask for them instead of assuming |
+| Correction | 6 | The question rests on a wrong belief, so the assistant must correct it |
 
 | Eval | Metric | Baseline | Compared against |
 |---|---|---|---|
 | Retrieval | recall@5, MRR | BM25 on raw text | BM25 + PyThaiNLP, embeddings, hybrid |
 | Answers | Correctness (LLM-as-judge, checked against our labels), citation accuracy | Gemma with no retrieval | RAG + agent; trap questions reported separately |
 | Calculations | Exact match on amounts | LLM does the arithmetic | `calculate` tool |
-| Refusals | Correct "not found" vs false refusals | No `min_score` | `min_score` sweep |
+| Refusals | Correct refusals vs false refusals | No `min_score` | `min_score` sweep |
+| Behaviour | Asks for each `missing_info` item; corrects each `misconception` (10 questions) | Gemma with no retrieval | RAG + agent |
 
 ### Results
 
@@ -196,13 +227,15 @@ The evaluation set is in `eval/questions.jsonl`: 50 labelled questions plus 10 o
 | Eval | Baseline | This system |
 |---|---|---|
 | Retrieval recall@5 | – | – |
-| Trap questions correct (/14) | – | – |
-| Calculation exact match (/12) | – | – |
-| Out-of-scope handled (/10) | – | – |
+| Trap questions correct (/20) | – | – |
+| Calculation exact match (/18) | – | – |
+| Out-of-scope handled (/18) | – | – |
+| Clarification asked (/8) | – | – |
+| Wrong belief corrected (/10) | – | – |
 
 ## Project structure
 
-Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/fetch_corpus.py`, `scripts/build_chunks.py`, `requirements.txt` and this README exist so far. Everything else is planned.
+Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/fetch_corpus.py`, `scripts/build_chunks.py`, `scripts/update_status.py`, `data/rates.csv`, `src/agent/tools/get_rate.py`, `tests/`, `eval/questions.jsonl`, `eval/check_questions.py`, `requirements.txt` and this README exist so far. Everything else is planned.
 
 ```
 .
@@ -290,7 +323,7 @@ python eval/run.py
 
 - **Frozen corpus.** Answers reflect the law as of 1 November 2026. Changes after that date are not included. For example, the 2027 minimum wage was still undecided at that date.
 - **Small model.** `gemma-4-E4B-it` may pick the wrong tool or misread multi-section questions. Tool calls will be logged for failure analysis.
-- **Small, single-labeller eval set.** 60 questions labelled by one person, so results will indicate direction rather than precise accuracy.
+- **Small, single-labeller eval set.** 100 questions labelled by one person, so results will indicate direction rather than precise accuracy.
 - **No interpretation.** The assistant reports what the statute says. It does not cover court rulings, company policies or employment contracts that give more than the legal minimum.
 
 ## Future work
