@@ -3,6 +3,9 @@
 Every labelled section must be in force and contain its quoted evidence, every formula must give
 the expected number, and terms marked absent must not appear in any in-force chunk.
 Exits with status 1 if any check fails.
+
+    python eval/check_questions.py                     # the 100 questions
+    python eval/check_questions.py eval/heldout.jsonl  # another set, without the type counts
 """
 
 import csv
@@ -97,7 +100,8 @@ def main():
     with open(ROOT / "data" / "manifest.csv", encoding="utf-8-sig", newline="") as f:
         titles = {r["id"]: r["title"].strip() for r in csv.DictReader(f)}
     source_ids = set(titles)
-    with open(ROOT / "eval" / "questions.jsonl", encoding="utf-8") as f:
+    path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "eval" / "questions.jsonl"
+    with open(path, encoding="utf-8") as f:
         questions = [json.loads(line) for line in f if line.strip()]
 
     failed = 0
@@ -109,7 +113,7 @@ def main():
             print(f"{question['id']}: {error}")
             failed += 1
     counts = Counter(q["type"] for q in questions)
-    if dict(counts) != EXPECTED_TYPES:
+    if len(sys.argv) == 1 and dict(counts) != EXPECTED_TYPES:
         print(f"question types {dict(counts)}, expected {EXPECTED_TYPES}")
         failed += 1
     duplicates = [i for i, n in Counter(q["id"] for q in questions).items() if n > 1]
