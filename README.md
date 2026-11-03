@@ -6,7 +6,7 @@ An LLM-powered assistant that answers questions about Thai employee rights, usin
 
 ## Project status
 
-This project is in progress. The corpus, its chunks and the retrievers are built so far. The sections below describe the intended design unless they say otherwise.
+The assistant runs end to end: retrieval, the agent, its tools and the API are built and evaluated. The report and demo video are still to come.
 
 | Part | Status |
 |---|---|
@@ -16,11 +16,11 @@ This project is in progress. The corpus, its chunks and the retrievers are built
 | Index (`scripts/build_index.py`) | Done |
 | Retrievers: BM25, BM25 + PyThaiNLP, embeddings, hybrid, reranked (`src/retrieval/`) | Done |
 | Retrieval evaluation (`eval/run_retrieval.py`) | Done |
-| Agent loop and `search_law`, `calculate` tools | Planned |
-| FastAPI service | Planned |
+| Agent loop and `search_law`, `calculate` tools (`src/agent/`) | Done |
+| FastAPI service (`src/api/`) | Done |
 | Evaluation questions (`eval/questions.jsonl`) | Done |
 | Official rates (`data/rates.csv`) and `get_rate` | Done |
-| Evaluation results | Planned |
+| Evaluation results (`eval/results_*.csv`) | Done |
 
 ---
 
@@ -68,10 +68,15 @@ User question
 FastAPI  POST /ask
    │
    ▼
-Agent loop (gemma-4-E4B-it, max 5 steps)
-   ├── search_law(query, k)    → hybrid retrieval over law sections, min_score floor
-   ├── calculate(kind, ...)    → severance / overtime / SSO contribution in Python
-   └── get_rate(name, as_of, ...) → official rates from a versioned CSV
+Agent (gemma-4-E4B-it)
+   ├── In parallel: rewrite the question in statute wording; does it need more details?
+   ├── Tool choice, before seeing any law (max 5 steps)
+   │     ├── search_law(query, k)       → reranked hybrid retrieval
+   │     ├── calculate(kind, ...)       → severance / overtime / SSO contribution in Python
+   │     └── get_rate(name, as_of, ...) → official rates from a versioned CSV
+   ├── Search with both wordings, reranking 10 sections for each
+   ├── In parallel: do the results cover this and quote an answer? Is a stated belief wrong?
+   └── Refuse or ask back straight away, or write the answer
    │
    ▼
 Pydantic-validated JSON answer with citations + as_of date
@@ -81,8 +86,12 @@ Pydantic-validated JSON answer with citations + as_of date
 
 - **Section-level chunks with legal metadata.** Each chunk is one section (มาตรา) tagged with `law`, `section`, `amendment_no`, `effective_date` and `status`. Retrieval returns only `in_force` text.
 - **Thai-aware retrieval.** Thai has no spaces between words, so naive BM25 performs poorly. We compare raw BM25, BM25 with PyThaiNLP word segmentation, embeddings, and hybrid search.
-- **A `min_score` floor.** If the corpus has no answer, the assistant says it doesn't know because the question is outside the scope of its content, instead of guessing. The threshold is chosen from a sweep on the eval set, not by hand.
-- **Ask, then correct.** If a question lacks details the answer depends on, such as tenure or wage, the assistant asks for them instead of assuming. If a question rests on a wrong belief, the assistant corrects it and cites the law.
+- **Refusing from the content, not a score.** If the search results do not cover the question, the assistant says it doesn't know instead of guessing. Everyday wording scored low against the statutes: the same section scored 0.035 for one wording and 0.999 for another. Statute wording raised the scores of out-of-scope questions too, so no score floor could separate them. If the model cannot quote a sentence that is really in the results, the answer is marked low confidence.
+- **Searching in statute wording.** The model rewrites the question in legal terms, and the search keeps each section's best score across both wordings.
+- **Asking back is its own step.** It runs before the model sees any law, because shown the sections the model listed every case instead of asking. It only applies if the results cover the topic, since it otherwise asked about out-of-scope questions.
+- **Correcting a belief is its own step.** It only runs if the wording states a belief, such as "ใช่ไหม" or "ได้ยินว่า". The model compares the belief with the results, and code fills in `correction`. This misses a belief stated without those words.
+- **The model chooses tools before it sees the law.** With section text in front of it, or the JSON format in its prompt, it often answered without calling a tool. Few-shot examples did not help.
+- **A calculation cites its own rule.** The section behind each amount comes from `calculate`, so it is cited even if the search did not return it. If the model will not state a result from `calculate` or `get_rate`, code writes that answer itself.
 - **Calculations in code.** Small models are unreliable at arithmetic, so all money is computed by deterministic, input-checked Python functions.
 - **Safe tool use.** Tools are allow-listed. Arguments are validated before running. Retrieved text and tool results are treated as data, never as instructions.
 
@@ -94,7 +103,6 @@ Pydantic-validated JSON answer with citations + as_of date
 | Retrieval / RAG | Section-level index, cited answers |
 | Retrieval evaluation | recall@k and MRR on a labelled question set |
 | Agent loop with tools *(agentic)* | `search_law`, `calculate`, `get_rate`, stop condition |
-| Advanced capability *(agentic)* | Sandboxed code execution for calculations |
 | Served interface | FastAPI `POST /ask` (SSE streaming optional) |
 
 ## Corpus
@@ -189,6 +197,9 @@ This embeds the in-force chunks into `data/index/embeddings.npz`, which is not c
 | `embedding` | Cosine similarity with `BAAI/bge-m3` at a pinned revision, which runs on CPU and supports Thai |
 | `hybrid` | Reciprocal rank fusion (k = 60) of `bm25_pythainlp` and `embedding` |
 | `reranked` | The top 50 from `hybrid`, reordered by the cross-encoder `BAAI/bge-reranker-v2-m3` at a pinned revision |
+| `reranked_live` | The same with the top 20. Plain RAG uses this one, because reranking 50 is too slow on CPU to use live |
+| `reranked_10` | The same with the top 10 |
+| `statute_both` | `reranked_10` on the question and on its statute wording, keeping each section's best score. The agent uses this one, and it needs the API key |
 
 ```python
 from src.retrieval.hybrid import build_retrievers
@@ -209,8 +220,13 @@ Each variant returns chunks, so two parts of a long section can both appear. Onl
 | `embedding` | 0.514 | 0.695 | 0.764 | 0.683 | 0.674 | 0.29 |
 | `hybrid` | 0.382 | 0.628 | 0.713 | 0.579 | 0.581 | 0.27 |
 | `reranked` | 0.667 | 0.801 | 0.841 | 0.812 | 0.791 | 35.58 |
+| `reranked_live` | 0.626 | 0.772 | 0.795 | 0.755 | 0.745 | about 21 |
+| `reranked_10` | 0.626 | 0.730 | 0.740 | 0.740 | 0.714 | not measured |
+| **`statute_both`** | **0.628** | **0.854** | **0.900** | 0.797 | **0.809** | about 21 |
 
-The reranked settings were chosen on these same questions, so its scores may be optimistic. Reranking takes about 36 seconds per query on CPU. Five of the nine questions with no gold section in its top 5 (`T09`, `T16`, `T17`, `T20`, `C20`) take their figures from rate announcements, which are looked up with `get_rate` rather than searched.
+The reranked settings were chosen on these same questions, so its scores may be optimistic. The 35.58 and 21 second figures were measured with no scores saved. Rerunning reuses saved scores, so the reranked times in `eval/results_retrieval.csv` are not real search times.
+
+`python eval/sweep_min_score.py` chooses the `min_score` floor for plain RAG: 0.10 has the best balanced accuracy, refusing 16 of 18 out-of-scope questions but also 12 of 82 answerable ones on score alone. Five of the nine questions with no gold section in the `reranked` top 5 (`T09`, `T16`, `T17`, `T20`, `C20`) take their figures from rate announcements, which are looked up with `get_rate` rather than searched.
 
 ### Official rates
 
@@ -237,9 +253,9 @@ The minimum wage announcement does not apply to government bodies, state enterpr
 
 ## Evaluation
 
-The evaluation set is in `eval/questions.jsonl`: 100 questions, each with the correct section(s), reference answer, expected number, `expected_behavior` (`answer`, `refuse`, `ask_clarification` or `correct_premise`) and `reference_source`, which names the source files by their `manifest.csv` title. The evals themselves are planned.
+The evaluation set is in `eval/questions.jsonl`: 100 questions, each with the correct section(s), reference answer, expected number, `expected_behavior` (`answer`, `refuse`, `ask_clarification` or `correct_premise`) and `reference_source`, which names the source files by their `manifest.csv` title. The evals are described below.
 
-`python eval/check_questions.py` checks the labels against the chunks: each section must be in force and contain the quoted evidence, each formula must give the expected number, out-of-scope terms must not appear in the corpus, out-of-scope answers must refuse, and each `reference_source` must match the manifest. Rerun it after rebuilding the chunks.
+`python eval/check_questions.py` checks the labels against the chunks: each section must be in force and contain the quoted evidence, each formula must give the expected number, each expected number must be in the reference answer, each outdated number must be in `wrong_answer`, out-of-scope terms must not appear in the corpus, out-of-scope answers must refuse, and each `reference_source` must match the manifest. Rerun it after rebuilding the chunks.
 
 **Label limits.** Severance for monthly wages assumes a daily rate of monthly wage / 30, which the Labour Protection Act does not define. `C19` assumes the ministry's compensation limits, which are not in the corpus, do not apply. `T09`, `T20`, the wage base in `T04`, `T05`, `T12`, `T18`, `C05`, `C06` and `C12`, and the Employee Welfare Fund figures in `T16`, `T17` and `C20` were read by eye from PDFs without usable text.
 
@@ -257,25 +273,52 @@ The evaluation set is in `eval/questions.jsonl`: 100 questions, each with the co
 | Retrieval | recall@k, MRR, nDCG | BM25 on raw text | BM25 + PyThaiNLP, embeddings, hybrid, reranked |
 | Answers | Correctness (LLM-as-judge, checked against our labels), citation accuracy | Gemma with no retrieval | RAG + agent; trap questions reported separately |
 | Calculations | Exact match on amounts | LLM does the arithmetic | `calculate` tool |
-| Refusals | Correct refusals vs false refusals | No `min_score` | `min_score` sweep |
-| Behaviour | Asks for each `missing_info` item; corrects each `misconception` (10 questions) | Gemma with no retrieval | RAG + agent |
+| Refusals | Correct refusals vs false refusals | No retrieval | RAG with a `min_score` floor; agent checking the content |
+| Behaviour | Asking back: recall, over-asking, precision. Correcting: filled in, right content, false corrections | Gemma with no retrieval | RAG + agent, plus controls for the agent |
 
 ### Results
 
-*To be filled in from `python eval/run.py`. Every number will be reproducible from this repo.*
+`python eval/run_answers.py baseline rag agent` writes each answer to `eval/results/`, and the summaries to `eval/results_answers.csv` and `eval/results_behaviour.csv`. It uses `gemma-4-E4B-it` at `temperature=0`. An interrupted run carries on from the saved answers, so delete those files to start again. The class proxy allows 200,000 tokens and 150 requests a minute per key. The client retries a 429 error up to 8 times. A question that still fails is logged to `eval/results/errors_<mode>.log` and skipped, and rerunning retries it.
 
-| Eval | Baseline | This system |
-|---|---|---|
-| Retrieval recall@5 | 0.018 | 0.841 |
-| Trap questions correct (/20) | – | – |
-| Calculation exact match (/18) | – | – |
-| Out-of-scope handled (/18) | – | – |
-| Clarification asked (/8) | – | – |
-| Wrong belief corrected (/10) | – | – |
+| Measure, over all 100 questions | No retrieval | RAG | Agent |
+|---|---:|---:|---:|
+| Expected behaviour | 59/100 | 72/100 | **91/100** |
+| All expected numbers, no outdated one | 6/58 | 28/58 | **48/58** |
+| Cites a gold section | 17/74 | 48/74 | **60/74** |
+| LLM judge says correct (see below) | 13/74 | 41/74 | 59/74 |
+
+| By question type | No retrieval | RAG | Agent |
+|---|---:|---:|---:|
+| Calculation: expected numbers | 2/18 | 2/18 | **18/18** |
+| Trap: expected numbers | 1/18 | 7/18 | **15/18** |
+| General: expected numbers | 2/20 | **17/20** | 13/20 |
+| Out of scope: refused | 10/18 | **18/18** | **18/18** |
+
+Asking back and correcting are measured in both directions, because recall alone rewards a system that always asks:
+
+| Behaviour | No retrieval | RAG | Agent |
+|---|---:|---:|---:|
+| Asked back when details were missing (recall) | **7/8** | 2/8 | 4/8 |
+| Asked back when not needed (over-asking) | 28/92 | **1/92** | 3/92 |
+| Of the questions it asked back, how many needed it (precision) | 7/35 | 2/3 | 4/7 |
+| Correction with the right content | 0/10 | 2/10 | **8/10** |
+| Corrected when there was nothing to correct | 2/90 | 1/90 | **0/90** |
+
+`eval/controls.jsonl` holds questions we added as checks for the agent, which do not count in the 100. It asked back on 0 of the 8 questions that give every detail, and corrected 0 of the 6 beliefs that are right.
+
+**How to read these numbers**
+
+- **Tuning used the same questions.** The prompts, the search set-up and the refusal rule were all adjusted on this set, so these scores may be optimistic. They need confirming on questions the system has not seen.
+- **General questions lost numbers against RAG.** `G05`, `G07`, `G12`, `G16`, `G20`, `G21` and `G30` miss a labelled figure. The agent asks back on `G12`, refuses `G30`, and otherwise tends to leave out one of the figures.
+- **Asking back is still weak.** `A04` and `A07` answer instead of asking. `A05` and `A08` are refused because the check says the results do not cover them. `G12`, `T11` and `T16` ask about details the answer does not need.
+- **Some corrections fail.** `X01` does not correct the belief, and `T15` does not state the right penalty, because its section is not found. The correction check reads the expected figures and key terms only.
+- **The number check needs every labelled figure.** `expected_numbers` lists all the figures that answer the question, leaving out dates, section numbers and the steps of a calculation. `wrong_numbers` lists outdated figures, which fail an answer unless it is correcting that belief. A calculated amount must also equal the expected one. The labels were added by one person from the reference answers. The answer may still state other figures that are not labelled.
+- **The LLM judge misses some missing figures.** It passes `T02`, `G16` and `G20` for the agent, which leave out a labelled figure. The judge is the same model that wrote the answers, and it has not been checked against human labels.
+- **Runs can vary despite `temperature=0`.** Two runs of an earlier version differed in 46 of 100 answer texts. A question near the edge of a check can change between runs: `O03` was answered in one recent run and refused in the next.
+- **Time.** Six new questions through `POST /ask`, one at a time, took 20 to 41 seconds on CPU, of which about 21 seconds is reranking. In the full evaluation, a few questions took over 60 seconds, the longest 122. That may be the client waiting out the rate limit, which we did not confirm. Times in the CSV files are lower than real ones, because they reuse saved scores.
+- **Earlier results.** `eval/results/min_score_*` holds answers from an earlier version of the agent, which relied on a `min_score` floor. Refusing from the content did better: 18/18 out-of-scope questions and 3/82 answerable ones refused, against 18/18 and 7/82 at the best floor. The option that produced them has been removed.
 
 ## Project structure
-
-Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/fetch_corpus.py`, `scripts/build_chunks.py`, `scripts/build_index.py`, `scripts/update_status.py`, `data/rates.csv`, `src/retrieval/`, `src/agent/tools/get_rate.py`, `tests/`, `eval/questions.jsonl`, `eval/check_questions.py`, `eval/run_retrieval.py`, `eval/results_retrieval.csv`, `requirements.txt` and this README exist so far. Everything else is planned.
 
 ```
 .
@@ -289,21 +332,25 @@ Only `data/manifest.csv`, `data/raw/`, `data/processed/chunks.jsonl`, `scripts/f
 │   ├── build_chunks.py       # PDF → text → sections → chunks
 │   └── build_index.py        # chunks → embedding index
 ├── src/
-│   ├── retrieval/            # BM25, embeddings, hybrid
-│   ├── agent/                # agent loop and tools
+│   ├── retrieval/            # BM25, embeddings, hybrid, reranking, metrics
+│   ├── agent/                # agent, its decision steps and tools
 │   ├── schemas.py            # Pydantic models
+│   ├── answer.py             # validate the model's JSON, retry on errors
+│   ├── rag.py                # plain RAG, the comparison for the agent
+│   ├── llm.py                # the one place that calls the model
 │   └── api/                  # FastAPI app
 ├── eval/
 │   ├── questions.jsonl       # labelled test set
-│   ├── run.py                # runs all evals and baselines
-│   └── results/              # CSV outputs
+│   ├── run_retrieval.py      # Eval 1: every retrieval variant
+│   ├── sweep_min_score.py    # chooses the refusal floor
+│   ├── run_answers.py        # Evals 2-4: baseline, RAG, agent
+│   ├── controls.jsonl        # questions the agent should not ask about or correct
+│   └── results/              # every saved answer
 ├── requirements.txt          # pinned Python dependencies
 └── README.md
 ```
 
 ## Getting started
-
-Only steps 1, 2 and 4 work today. The remaining steps show how the finished project will run.
 
 ### 1. Get the code and verify the corpus
 
@@ -324,9 +371,9 @@ python scripts/build_chunks.py
 
 To refresh the progress report `read/Update.pdf` after every commit, turn on the hook once per clone with `git config core.hooksPath .githooks`. The PDF is not committed.
 
-### 3. Configure (planned)
+### 3. Configure
 
-The API key and base URL are read from the environment, never committed:
+The API key and base URL are read from the environment, or from a local `.env` file, which git ignores:
 
 ```bash
 export OPENAI_API_KEY=...        # Windows PowerShell: $env:OPENAI_API_KEY="..."
@@ -339,11 +386,13 @@ export OPENAI_BASE_URL=...
 python scripts/build_index.py
 ```
 
-### 5. Run the API (planned)
+### 5. Run the API
 
 ```bash
-uvicorn src.api.main:app --reload
+uvicorn src.api.main:app
 ```
+
+Startup loads both models, and the first run downloads the reranker. A new question took 20 to 41 seconds on CPU in our test, mostly reranking. Scores are saved in `data/index/`, so a repeated question is much faster.
 
 ```bash
 curl -X POST http://localhost:8000/ask \
@@ -351,16 +400,18 @@ curl -X POST http://localhost:8000/ask \
   -d '{"question": "ลาป่วยได้กี่วันโดยได้รับค่าจ้าง"}'
 ```
 
-### 6. Reproduce the evaluation (planned)
+### 6. Reproduce the evaluation
 
 ```bash
-python eval/run.py
+python eval/run_retrieval.py
+python eval/sweep_min_score.py
+python eval/run_answers.py baseline rag agent
 ```
 
 ## Limitations
 
 - **Frozen corpus.** Answers reflect the law as of 1 November 2026. Changes after that date are not included. For example, the 2027 minimum wage was still undecided at that date.
-- **Small model.** `gemma-4-E4B-it` may pick the wrong tool or misread multi-section questions. Tool calls will be logged for failure analysis.
+- **Small model.** `gemma-4-E4B-it` may pick the wrong tool or misread multi-section questions. Each decision is kept in the answer's trace in `eval/results/` for failure analysis.
 - **Small, single-labeller eval set.** 100 questions labelled by one person, so results will indicate direction rather than precise accuracy.
 - **No interpretation.** The assistant reports what the statute says. It does not cover court rulings, company policies or employment contracts that give more than the legal minimum.
 

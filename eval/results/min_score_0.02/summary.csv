@@ -1,0 +1,8 @@
+mode,group,questions,behaviour_ok,number_ok,citation_hit,judge_correct,seconds_per_question
+agent,all,100,82/100,50/58,60/74,58/74,8.1
+agent,general,30,30/30,19/20,29/30,27/30,5.7
+agent,correction,6,2/6,2/2,5/6,4/6,56.1
+agent,trap,20,15/20,11/18,9/20,9/20,4.8
+agent,calculation,18,18/18,18/18,17/18,18/18,5.3
+agent,out_of_scope,18,15/18,,,,3.5
+agent,clarification,8,2/8,,,,6.0

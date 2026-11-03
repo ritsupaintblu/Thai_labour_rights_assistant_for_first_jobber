@@ -25,6 +25,10 @@ def squeeze(text):
     return re.sub(r"\s+", "", text)
 
 
+def digits_in(text):
+    return {float(n.replace(",", "")) for n in re.findall(r"\d[\d,]*(?:\.\d+)?", text)}
+
+
 def expected_reference(question, section_sources, titles):
     """The manifest titles a question's answer comes from, as they appear in reference_source."""
     ids = [s for g in question["gold_sections"] for s in section_sources.get((g["law"], g["section"]), [])]
@@ -50,6 +54,14 @@ def check(question, sections, in_force_text, source_ids):
         # the formulas are written in this repo's own test set, not taken from input
         if abs(eval(question["formula"]) - question["expected_number"]) > 0.01:
             errors.append(f"{question['formula']} does not give {question['expected_number']}")
+    if question["expected_number"] is not None:
+        expected = question.get("expected_numbers", [])
+        if question["expected_number"] not in expected:
+            errors.append("expected_numbers must include expected_number")
+        for number in set(expected) - digits_in(question["reference_answer"]):
+            errors.append(f"expected number is not in the reference answer: {number}")
+        for number in set(question.get("wrong_numbers", [])) - digits_in(question.get("wrong_answer") or ""):
+            errors.append(f"wrong number is not in wrong_answer: {number}")
     if question["type"] == "out_of_scope":
         if question["gold_sections"] or not question.get("not_found"):
             errors.append("out-of-scope questions need not_found and no gold sections")

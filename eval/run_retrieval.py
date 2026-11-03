@@ -4,15 +4,18 @@ import csv
 import json
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.stdout.reconfigure(encoding="utf-8")
 
+from src.agent.steps import rewrite_query
+from src.llm import load_complete
 from src.retrieval.corpus import ROOT
-from src.retrieval.hybrid import build_retrievers
+from src.retrieval.hybrid import AGENT_VARIANT, build_retrievers
 from src.retrieval.metrics import ndcg_at_k, precision_at_k, recall_at_k, reciprocal_rank
-from src.retrieval.rerank import CANDIDATES
+from src.retrieval.rerank import CANDIDATES, StatuteWordingRetriever
 
 QUESTIONS = ROOT / "eval" / "questions.jsonl"
 RESULTS = ROOT / "eval" / "results_retrieval.csv"
@@ -39,8 +42,14 @@ def main():
     with open(QUESTIONS, encoding="utf-8") as f:
         questions = [q for q in map(json.loads, f) if q["gold_sections"]]
 
+    retrievers = build_retrievers()
+    complete = load_complete()
+    # the agent's search: the question and its statute wording. The wording comes from the model, so this needs the key
+    retrievers["statute_both"] = StatuteWordingRetriever(
+        retrievers[AGENT_VARIANT], lru_cache(maxsize=None)(lambda query: rewrite_query(query, complete)))
+
     rows = []
-    for variant, retriever in build_retrievers().items():
+    for variant, retriever in retrievers.items():
         started = time.perf_counter()
         scores, misses = [], []
         for q in questions:

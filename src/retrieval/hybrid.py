@@ -6,9 +6,11 @@ Fusion uses ranks because BM25 scores and cosine similarities are not on the sam
 from src.retrieval.bm25 import BM25Retriever, tokenize_raw, tokenize_thai
 from src.retrieval.corpus import Hit, load_chunks
 from src.retrieval.embeddings import EmbeddingRetriever, encode, load_model, load_vectors
-from src.retrieval.rerank import RerankRetriever, load_scorer
+from src.retrieval.rerank import AGENT_CANDIDATES, LIVE_CANDIDATES, RerankRetriever, load_scorer
 
 RRF_K = 60  # the constant from the original RRF paper (Cormack et al., 2009)
+SEARCH_VARIANT = "reranked_live"  # what plain RAG uses
+AGENT_VARIANT = "reranked_10"  # what the agent searches each wording with
 
 
 class HybridRetriever:
@@ -35,10 +37,13 @@ def build_retrievers():
     thai = BM25Retriever(chunks, tokenize_thai)
     embedding = EmbeddingRetriever(chunks, load_vectors(chunks), lambda query: encode(model, [query])[0])
     hybrid = HybridRetriever(thai, embedding)
+    score = load_scorer()
     return {
         "bm25_raw": BM25Retriever(chunks, tokenize_raw),
         "bm25_pythainlp": thai,
         "embedding": embedding,
         "hybrid": hybrid,
-        "reranked": RerankRetriever(hybrid, load_scorer()),
+        "reranked": RerankRetriever(hybrid, score),
+        SEARCH_VARIANT: RerankRetriever(hybrid, score, LIVE_CANDIDATES),
+        AGENT_VARIANT: RerankRetriever(hybrid, score, AGENT_CANDIDATES),
     }

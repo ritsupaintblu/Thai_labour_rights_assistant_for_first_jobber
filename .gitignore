@@ -7,3 +7,6 @@ read/Update.pdf
 .env
 data/index/
 __pycache__/
+
+# Failures from eval/run_answers.py
+eval/results/errors_*.log
