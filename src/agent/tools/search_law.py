@@ -29,6 +29,16 @@ def section_rows():
     return rows
 
 
+@lru_cache(maxsize=1)
+def section_texts():
+    """Every in-force section's text with whitespace removed, by (law, section): PDF line breaks split words."""
+    texts = {}
+    for chunk in load_chunks():
+        key = (chunk["law"], chunk["section"])
+        texts[key] = texts.get(key, "") + "".join(chunk["text"].split())
+    return texts
+
+
 class SearchLaw:
     def __init__(self, retriever, min_score=MIN_SCORE, titles=None):
         self.retriever = retriever

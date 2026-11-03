@@ -5,6 +5,7 @@ The result is a dict with a "status":
     needs_input - "missing" lists what to ask the user for
     invalid     - the arguments were rejected; nothing was calculated
 Monthly wages use a daily rate of monthly / 30. The Labour Protection Act only states this for hourly rates (s.68).
+A figure the user has not given is left out, and comes back in "missing", so the agent asks for it instead of guessing.
 """
 
 from fractions import Fraction
@@ -15,6 +16,9 @@ SEVERANCE_DAYS = [(20, 400), (10, 300), (6, 240), (3, 180), (1, 90)]  # (full ye
 OVERTIME = {"overtime": (Fraction(3, 2), "LPA2541 s.61"), "holiday_overtime": (Fraction(3), "LPA2541 s.63"),
             "maritime_overtime": (Fraction(5, 4), "MARITIME2558 s.55")}
 SPECIAL_SEVERANCE_CAP = 360
+TENURE_KINDS = {"severance", "special_severance"}
+HOUR_KINDS = {*OVERTIME, "holiday_work"}
+KINDS = {*TENURE_KINDS, *HOUR_KINDS, "sso_contribution", "ewf_contribution", "compensation", "wage_share"}
 
 
 def ok(kind, value, unit, formula, legal_basis, note=None):
@@ -96,12 +100,51 @@ def ewf_contribution(wage, as_of):
               "LPA2541 s.131", note)
 
 
-def calculate(kind, wage, wage_type="monthly", years=0, months=0, days=0, hours=None, hours_per_day=8,
-              paid_holiday=None, as_of=None):
+def wage_share(wage, wage_type, percent, days, basis):
+    """A share of the daily wage for a number of days, for rules with no kind of their own, such as pay while
+    suspended (s.116) or during a temporary closure (s.75). The percentage must be written in the section named,
+    so the model cannot pair a rule with a figure from somewhere else."""
+    from src.agent.tools.search_law import section_texts
+    from src.answer import mentions_number  # imported here: src.answer imports the tools
+    if wage_type == "hourly":
+        return invalid("wage_share needs a monthly or daily wage")
+    law, _, section = (basis or "").partition(" s.")
+    text = section_texts().get((law, section))
+    if text is None:
+        return invalid(f"basis must be an in-force section written like 'LPA2541 s.116', not {basis!r}")
+    percent = exact(percent)
+    if percent != 100 and not mentions_number(percent, text):
+        return invalid(f"{law} s.{section} does not state ร้อยละ {float(percent):g}")
+    return ok("wage_share", daily_rate(wage, wage_type) * percent / 100 * exact(days), "baht",
+              f"ค่าจ้างวันละ x ร้อยละ {float(percent):g} x {days} วัน", f"{law} s.{section}")
+
+
+def missing_inputs(kind, wage, years, months, days, hours, percent, basis):
+    names = [] if wage is not None else ["wage"]
+    if kind in TENURE_KINDS and years is None and months is None and days is None:
+        names.append("tenure")
+    if kind in HOUR_KINDS and hours is None:
+        names.append("hours")
+    if kind == "wage_share":
+        names += [n for n, v in (("days", days), ("percent", percent), ("basis", basis)) if v is None]
+    return names
+
+
+def calculate(kind, wage=None, wage_type="monthly", years=None, months=None, days=None, hours=None, hours_per_day=8,
+              paid_holiday=None, as_of=None, percent=None, basis=None):
     """Inputs are checked by CalculateArgs in the agent loop; a wrong kind or value is rejected here as well."""
-    wage = exact(wage)
-    if wage <= 0:
+    if kind not in KINDS:
+        return invalid(f"unknown kind: {kind}")
+    if wage is not None and exact(wage) < 0:
         return invalid("wage must be positive")
+    wage = None if wage is None or exact(wage) == 0 else wage  # 0 is how the model says it was not given
+    names = missing_inputs(kind, wage, years, months, days, hours, percent, basis)
+    if names:
+        return missing(*names)
+    wage = exact(wage)
+    if kind == "wage_share":
+        return wage_share(wage, wage_type, percent, days, basis)
+    years, months, days = years or 0, months or 0, days or 0
     if kind == "severance":
         return severance(wage, wage_type, years, months, days)
     if kind == "special_severance":

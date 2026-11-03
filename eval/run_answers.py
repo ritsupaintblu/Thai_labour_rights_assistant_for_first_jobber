@@ -13,6 +13,7 @@ import sys
 import time
 import traceback
 from collections import defaultdict
+from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -64,11 +65,20 @@ def supporting_ok(q, a):
     return all(mentions_number(n, a["answer"] + " " + (a["correction"] or "")) for n in q["supporting_numbers"])
 
 
+@lru_cache(maxsize=1)
+def source_titles():
+    with open(ROOT / "data" / "manifest.csv", encoding="utf-8-sig", newline="") as f:
+        return {r["id"]: r["title"].strip() for r in csv.DictReader(f)}
+
+
 def citation_hit(q, a):
+    """A gold section, or for a rate, the announcement the label names in gold_sources."""
     if not q["gold_sections"] or q["expected_behavior"] == "ask_clarification":
         return None
     gold = {(g["law"], g["section"]) for g in q["gold_sections"]}
-    return bool(gold & {(c["law"], c["section"]) for c in a["citations"]})
+    announcements = {source_titles()[s] for s in q.get("gold_sources", [])}
+    return bool(gold & {(c["law"], c["section"]) for c in a["citations"]}) or any(
+        c["law"] is None and c["source"] in announcements for c in a["citations"])
 
 
 def judge(q, a, complete):
@@ -179,6 +189,7 @@ def run_mode(mode, answerer, questions, complete):
                 # checks that need no model are scored again, so a fixed check applies to saved answers
                 done[q["id"]]["number_ok"] = number_ok(q, done[q["id"]]["answer"])
                 done[q["id"]]["supporting_ok"] = supporting_ok(q, done[q["id"]]["answer"])
+                done[q["id"]]["citation_hit"] = citation_hit(q, done[q["id"]]["answer"])
                 continue
             started = time.perf_counter()
             try:
