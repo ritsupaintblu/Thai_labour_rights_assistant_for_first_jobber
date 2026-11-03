@@ -320,6 +320,36 @@ Asking back and correcting are measured in both directions, because recall alone
 - **Time.** Six new questions through `POST /ask`, one at a time, took 20 to 41 seconds on CPU, of which about 21 seconds is reranking. In the full evaluation, a few questions took over 60 seconds, the longest 122. That may be the client waiting out the rate limit, which we did not confirm. Times in the CSV files are lower than real ones, because they reuse saved scores.
 - **Earlier results.** `eval/results/min_score_*` holds answers from an earlier version of the agent, which relied on a `min_score` floor. Refusing from the content did better: 17/18 out-of-scope questions and 2/82 answerable ones refused, against 18/18 and 7/82 at the best floor. The option that produced them has been removed.
 
+### Held-out check
+
+The scores above come from the questions the system was tuned on. To check them, `eval/heldout.jsonl` holds 30 new questions, written from the statutes after tuning finished: 7 general, 5 trap, 5 calculation, 4 correction, 4 clarification and 5 out of scope. Each targets a known weak spot, such as a neighbouring section, a belief stated without "ใช่ไหม", or a broad question that needs asking back. The labels pass `python eval/check_questions.py eval/heldout.jsonl`.
+
+The file was committed with its SHA-256 in `eval/heldout.lock` before any run, and `python eval/run_heldout.py` refuses to start if the file has changed. Nothing in the system was changed after seeing the results. The agent ran 3 times. Ranges are the lowest and highest of the 3 runs, and the interval is a 95% Wilson interval for the lower count:
+
+| Measure | Held-out, 3 runs | 95% interval | Tuned set, agent |
+|---|---:|---:|---:|
+| Expected behaviour | 22-23/30 | 56-86% | 92/100 |
+| Figures the question asks for, no outdated one | 11/18 | 39-80% | 52/58 |
+| Cites a gold section | 12-14/21 | 37-76% | 61/74 |
+| LLM judge says correct | 12-13/21 | 41-79% | 65/74 |
+
+| By type, expected behaviour | Held-out, 3 runs |
+|---|---:|
+| General | 6/7 |
+| Trap | 3-4/5 |
+| Calculation | 5/5, but only 3/5 with the right amount |
+| Correction | 2/4 |
+| Clarification | 1/4 |
+| Out of scope | 5/5 |
+
+- **The tuned-set scores were optimistic.** Every measure is lower on unseen questions. The tuned set's own intervals are 85-96% for expected behaviour and 79-95% for figures, so the intervals only just touch. With 30 questions, each held-out interval is about 30 points wide, so the size of the drop is uncertain.
+- **Runs barely varied.** 21 of 30 answer texts were identical in all 3 runs, and only 3 questions changed an outcome: `H01`, `H08` and `H17`. The variation between runs is much smaller than the gap to the tuned set. Retrieval is deterministic, so only the model varies between runs.
+- **Refusals held up.** All 5 out-of-scope questions were refused in every run, and no answerable question was refused for being out of scope except `H08`.
+- **Calculations fail when no tool kind fits.** `H17` asks for suspension pay, which `calculate` has no kind for. The model used the compensation kind instead and answered 420 baht, citing the Workmen's Compensation Act. `H15` asks for 2029 contributions, but `as_of` was not passed, so the 2026 ceiling gave 875 instead of 1,000 baht.
+- **Answers from a neighbouring section persist.** In 2 of 3 runs, `H01` about women on night shifts was answered with the rule for pregnant employees.
+- **Weak spots seen in tuning are confirmed.** Corrections were missed when the belief had no trigger word (`H18`, `H19`). `H21` was corrected from the wrong section. Asking back worked only where `get_rate` needed a district (`H22`), and `H05` and `H09` asked when it was not needed. `H08`, on pay for spouse-support leave, was refused in 2 runs and failed to produce an answer in the third. `H12` never found the 90-day maternity benefit.
+- **Citations of rates do not count as gold.** `H10` and `H11` cite the rate announcement's clause, which has no law code, so they miss the labelled section even though the rate is right.
+
 ## Project structure
 
 ```
@@ -347,6 +377,8 @@ Asking back and correcting are measured in both directions, because recall alone
 │   ├── sweep_min_score.py    # chooses the refusal floor
 │   ├── run_answers.py        # Evals 2-4: baseline, RAG, agent
 │   ├── controls.jsonl        # questions the agent should not ask about or correct
+│   ├── heldout.jsonl         # 30 locked questions written after tuning
+│   ├── run_heldout.py        # runs them several times and reports ranges
 │   └── results/              # every saved answer
 ├── requirements.txt          # pinned Python dependencies
 └── README.md
