@@ -33,6 +33,7 @@ ANSWER_FORMAT = """ตอบเป็น JSON เท่านั้น ห้า
 ถ้ามีผลคำนวณ ให้บอกจำนวนเงินนั้นในคำตอบ ผลคำนวณถูกต้องแล้ว ห้ามบอกว่าคำนวณไม่ได้ ถ้ามีอัตราทางการ ให้บอกอัตรานั้นในคำตอบ
 อัตราและผลคำนวณระบบอ้างแหล่งที่มาให้เอง ถ้าตอบจากสองอย่างนี้อย่างเดียวให้ citations เป็น []"""
 TOOL_LABELS = {"อัตราทางการ", "ผลคำนวณ"}
+SECTION = re.compile(r"\d+(?:/\d+)?(?:\s*(?:ทวิ|ตรี|จัตวา|เบญจ|ฉ|สัตต|อัฏฐ|นว)(?![ก-๙]))?")
 UNITS = {"baht": "บาท", "baht_per_month": "บาทต่อเดือน", "baht_per_day": "บาทต่อวัน", "percent": "เปอร์เซ็นต์"}
 GAVE_UP = "ขออภัย ระบบสร้างคำตอบที่ตรวจสอบแหล่งอ้างอิงได้ไม่สำเร็จ กรุณาถามใหม่ หรือสอบถามสายด่วน 1546"
 
@@ -82,6 +83,13 @@ def mentions_number(number, text):
     return re.search(f"{before}{thai_number_word(number)}(?!{after}|จุด)", text) is not None
 
 
+def section_id(text):
+    """The section number alone: "มาตรา 119 (5)" and "s.119 วรรคสอง" are both section 119, and "47 ทวิ" stays whole."""
+    text = text.strip().removeprefix("มาตรา").removeprefix("s.").strip()
+    match = SECTION.match(text)
+    return " ".join(match.group(0).split()) if match else text
+
+
 def parse_draft(raw):
     try:
         text = re.sub(r"^```(?:json)?|```$", "", (raw or "").strip()).strip()
@@ -106,7 +114,7 @@ def build_answer(raw, evidence):
         for ref in draft.citations:
             if ref.law in rate_sources or ref.section in rate_sources:
                 continue  # rates are cited below, with their real clause and date
-            section = ref.section.removeprefix("มาตรา").removeprefix("s.").strip()
+            section = section_id(ref.section)
             row = evidence.sections.get((ref.law, section))
             if row is None:
                 raise ValueError(f"{ref.law} section {section} is not in the search results, so it cannot be cited. "

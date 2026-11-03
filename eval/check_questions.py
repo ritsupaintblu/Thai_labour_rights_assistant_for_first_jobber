@@ -58,7 +58,7 @@ def check(question, sections, in_force_text, source_ids):
         expected = question.get("expected_numbers", [])
         if question["expected_number"] not in expected:
             errors.append("expected_numbers must include expected_number")
-        for number in set(expected) - digits_in(question["reference_answer"]):
+        for number in set(expected + question.get("supporting_numbers", [])) - digits_in(question["reference_answer"]):
             errors.append(f"expected number is not in the reference answer: {number}")
         for number in set(question.get("wrong_numbers", [])) - digits_in(question.get("wrong_answer") or ""):
             errors.append(f"wrong number is not in wrong_answer: {number}")

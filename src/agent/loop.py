@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from src.agent.steps import check_belief, check_results, needs_input, rewrite_query
+from src.agent.steps import check_belief, check_results, needs_input, rewrite_query, squeeze
 from src.agent.tools.calculate import calculate
 from src.agent.tools.get_rate import get_rate, load_rates
 from src.agent.tools.search_law import AS_OF
@@ -87,6 +87,14 @@ def tool_schemas():
                                  "wage_type บอกว่า wage เป็นรายเดือน รายวัน หรือรายชั่วโมง; "
                                  "paid_holiday คือมีสิทธิได้ค่าจ้างในวันหยุดหรือไม่", CalculateArgs),
     ]
+
+
+def focus(rows, quote):
+    """Only the section holding the quote. Given the other sections, the model often answered from a
+    neighbouring one, such as the night-work rule for children when asked about breaks."""
+    quote = squeeze(quote)
+    holder = next((r for r in rows if quote and quote in squeeze(r["text"])), None)
+    return [r for r in rows if (r["law"], r["section"]) == (holder["law"], holder["section"])] if holder else rows
 
 
 def context_text(rows, evidence):
@@ -167,7 +175,7 @@ class Agent:
         evidence.add_search({"results": rows})
         context = context_text(rows, evidence)
         with ThreadPoolExecutor(2) as pool:
-            checked = pool.submit(check_results, question, context, self.complete)
+            checked = pool.submit(check_results, question, context, self.complete, rewrite)
             belief = pool.submit(check_belief, question, context, self.complete).result()
             check = checked.result()
         trace.append({"tool": "check", "arguments": check.quote[:80],
@@ -180,6 +188,8 @@ class Agent:
             return Answer(answer=ASKING, clarifying_question=detail, as_of=AS_OF, confidence="medium"), trace
         if not has_result and not belief.belief_is_wrong and not check.covers_topic:
             return Answer(answer=NOT_FOUND, not_found=True, as_of=AS_OF, confidence="low"), trace
+        if check.answers:
+            context = context_text(focus(rows, check.quote), evidence)
         answer = self.write_answer(question, context, belief, evidence)
         # no sentence could be quoted, so the citations are all that supports this answer
         return (answer if check.answers or has_result else answer.model_copy(update={"confidence": "low"})), trace

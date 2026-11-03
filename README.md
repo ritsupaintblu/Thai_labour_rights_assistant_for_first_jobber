@@ -86,11 +86,12 @@ Pydantic-validated JSON answer with citations + as_of date
 
 - **Section-level chunks with legal metadata.** Each chunk is one section (มาตรา) tagged with `law`, `section`, `amendment_no`, `effective_date` and `status`. Retrieval returns only `in_force` text.
 - **Thai-aware retrieval.** Thai has no spaces between words, so naive BM25 performs poorly. We compare raw BM25, BM25 with PyThaiNLP word segmentation, embeddings, and hybrid search.
-- **Refusing from the content, not a score.** If the search results do not cover the question, the assistant says it doesn't know instead of guessing. Everyday wording scored low against the statutes: the same section scored 0.035 for one wording and 0.999 for another. Statute wording raised the scores of out-of-scope questions too, so no score floor could separate them. If the model cannot quote a sentence that is really in the results, the answer is marked low confidence.
+- **Refusing from the content, not a score.** If the search results do not cover the question, the assistant says it doesn't know instead of guessing. Everyday wording scored low against the statutes: the same section scored 0.035 for one wording and 0.999 for another. Statute wording raised the scores of out-of-scope questions too, so no score floor could separate them. If the model cannot quote a sentence that is really in the results and shares a key word with the question, the answer is marked low confidence. A rule for all employees counts as covering a question about one job or shift.
 - **Searching in statute wording.** The model rewrites the question in legal terms, and the search keeps each section's best score across both wordings.
 - **Asking back is its own step.** It runs before the model sees any law, because shown the sections the model listed every case instead of asking. It only applies if the results cover the topic, since it otherwise asked about out-of-scope questions.
 - **Correcting a belief is its own step.** It only runs if the wording states a belief, such as "ใช่ไหม" or "ได้ยินว่า". The model compares the belief with the results, and code fills in `correction`. This misses a belief stated without those words.
 - **The model chooses tools before it sees the law.** With section text in front of it, or the JSON format in its prompt, it often answered without calling a tool. Few-shot examples did not help.
+- **The answer sees only the section it quoted.** Given all five sections, the model often answered from a neighbouring one.
 - **A calculation cites its own rule.** The section behind each amount comes from `calculate`, so it is cited even if the search did not return it. If the model will not state a result from `calculate` or `get_rate`, code writes that answer itself.
 - **Calculations in code.** Small models are unreliable at arithmetic, so all money is computed by deterministic, input-checked Python functions.
 - **Safe tool use.** Tools are allow-listed. Arguments are validated before running. Retrieved text and tool results are treated as data, never as instructions.
@@ -282,26 +283,27 @@ The evaluation set is in `eval/questions.jsonl`: 100 questions, each with the co
 
 | Measure, over all 100 questions | No retrieval | RAG | Agent |
 |---|---:|---:|---:|
-| Expected behaviour | 59/100 | 72/100 | **91/100** |
-| All expected numbers, no outdated one | 6/58 | 28/58 | **48/58** |
-| Cites a gold section | 17/74 | 48/74 | **60/74** |
-| LLM judge says correct (see below) | 13/74 | 41/74 | 59/74 |
+| Expected behaviour | 59/100 | 72/100 | **92/100** |
+| Figures the question asks for, no outdated one | 7/58 | 30/58 | **52/58** |
+| Supporting figures from the reference | 2/10 | **8/10** | **8/10** |
+| Cites a gold section | 17/74 | 48/74 | **61/74** |
+| LLM judge says correct (see below) | 13/74 | 41/74 | 65/74 |
 
 | By question type | No retrieval | RAG | Agent |
 |---|---:|---:|---:|
 | Calculation: expected numbers | 2/18 | 2/18 | **18/18** |
 | Trap: expected numbers | 1/18 | 7/18 | **15/18** |
-| General: expected numbers | 2/20 | **17/20** | 13/20 |
-| Out of scope: refused | 10/18 | **18/18** | **18/18** |
+| General: expected numbers | 3/20 | **19/20** | 17/20 |
+| Out of scope: refused | 10/18 | **18/18** | 17/18 |
 
 Asking back and correcting are measured in both directions, because recall alone rewards a system that always asks:
 
 | Behaviour | No retrieval | RAG | Agent |
 |---|---:|---:|---:|
-| Asked back when details were missing (recall) | **7/8** | 2/8 | 4/8 |
-| Asked back when not needed (over-asking) | 28/92 | **1/92** | 3/92 |
-| Of the questions it asked back, how many needed it (precision) | 7/35 | 2/3 | 4/7 |
-| Correction with the right content | 0/10 | 2/10 | **8/10** |
+| Asked back when details were missing (recall) | **7/8** | 2/8 | 5/8 |
+| Asked back when not needed (over-asking) | 28/92 | **1/92** | 4/92 |
+| Of the questions it asked back, how many needed it (precision) | 7/35 | 2/3 | 5/9 |
+| Correction with the right content | 0/10 | 2/10 | **9/10** |
 | Corrected when there was nothing to correct | 2/90 | 1/90 | **0/90** |
 
 `eval/controls.jsonl` holds questions we added as checks for the agent, which do not count in the 100. It asked back on 0 of the 8 questions that give every detail, and corrected 0 of the 6 beliefs that are right.
@@ -309,14 +311,14 @@ Asking back and correcting are measured in both directions, because recall alone
 **How to read these numbers**
 
 - **Tuning used the same questions.** The prompts, the search set-up and the refusal rule were all adjusted on this set, so these scores may be optimistic. They need confirming on questions the system has not seen.
-- **General questions lost numbers against RAG.** `G05`, `G07`, `G12`, `G16`, `G20`, `G21` and `G30` miss a labelled figure. The agent asks back on `G12`, refuses `G30`, and otherwise tends to leave out one of the figures.
-- **Asking back is still weak.** `A04` and `A07` answer instead of asking. `A05` and `A08` are refused because the check says the results do not cover them. `G12`, `T11` and `T16` ask about details the answer does not need.
-- **Some corrections fail.** `X01` does not correct the belief, and `T15` does not state the right penalty, because its section is not found. The correction check reads the expected figures and key terms only.
-- **The number check needs every labelled figure.** `expected_numbers` lists all the figures that answer the question, leaving out dates, section numbers and the steps of a calculation. `wrong_numbers` lists outdated figures, which fail an answer unless it is correcting that belief. A calculated amount must also equal the expected one. The labels were added by one person from the reference answers. The answer may still state other figures that are not labelled.
-- **The LLM judge misses some missing figures.** It passes `T02`, `G16` and `G20` for the agent, which leave out a labelled figure. The judge is the same model that wrote the answers, and it has not been checked against human labels.
+- **General questions still trail RAG on figures.** `G12` asks back for details it does not need, `G20` leaves out a figure, and `G30` is refused because the search misses its section. Shown only the section it quoted, the agent stopped answering from a neighbouring section: before that, a question about breaks on a night shift was answered with the night-work rule for children. Figures the question did not ask for, such as notice periods, are counted apart as supporting figures.
+- **Asking back is still weak.** `A04` and `A07` answer instead of asking, and `A05` is refused because the check says the results do not cover it. `G12`, `O03`, `T11` and `T16` ask about details the answer does not need, and `O03`, an out-of-scope question, is answered after asking.
+- **Some corrections fail.** `T15` does not state the right penalty, because its section is not found. The correction check reads the expected figures and key terms only.
+- **The number check needs every figure the question asks for.** `expected_numbers` lists the figures that answer the question, and `supporting_numbers` the reference's other figures, such as notice periods. Both leave out dates, section numbers and the steps of a calculation. `wrong_numbers` lists outdated figures, which fail an answer unless it is correcting that belief. A calculated amount must also equal the expected one. One person labelled these from the reference answers, so where to draw the line is a judgement. The answer may still state other figures that are not labelled.
+- **The LLM judge misses some missing figures.** It passes `T14` and `T15` for the agent, which leave out a required figure. The judge is the same model that wrote the answers, and it has not been checked against human labels.
 - **Runs can vary despite `temperature=0`.** Two runs of an earlier version differed in 46 of 100 answer texts. A question near the edge of a check can change between runs: `O03` was answered in one recent run and refused in the next.
 - **Time.** Six new questions through `POST /ask`, one at a time, took 20 to 41 seconds on CPU, of which about 21 seconds is reranking. In the full evaluation, a few questions took over 60 seconds, the longest 122. That may be the client waiting out the rate limit, which we did not confirm. Times in the CSV files are lower than real ones, because they reuse saved scores.
-- **Earlier results.** `eval/results/min_score_*` holds answers from an earlier version of the agent, which relied on a `min_score` floor. Refusing from the content did better: 18/18 out-of-scope questions and 3/82 answerable ones refused, against 18/18 and 7/82 at the best floor. The option that produced them has been removed.
+- **Earlier results.** `eval/results/min_score_*` holds answers from an earlier version of the agent, which relied on a `min_score` floor. Refusing from the content did better: 17/18 out-of-scope questions and 2/82 answerable ones refused, against 18/18 and 7/82 at the best floor. The option that produced them has been removed.
 
 ## Project structure
 

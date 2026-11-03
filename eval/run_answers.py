@@ -31,7 +31,7 @@ BASELINE_SYSTEM = f"คุณเป็นผู้ช่วยด้านสิ
 JUDGE_SYSTEM = """คุณเป็นผู้ตรวจคำตอบ เทียบคำตอบกับเฉลยเท่านั้น ไม่ให้คะแนนความยาวหรือสำนวน
 คำตอบถูกเมื่อข้อเท็จจริงหลักและตัวเลขตรงกับเฉลย และไม่มีข้อมูลที่ขัดกับเฉลย
 ตอบ JSON เท่านั้น: {"correct": true} หรือ {"correct": false}"""
-METRICS = ["behaviour_ok", "number_ok", "citation_hit", "judge_correct"]
+METRICS = ["behaviour_ok", "number_ok", "supporting_ok", "citation_hit", "judge_correct"]
 
 
 def behaviour_ok(q, a):
@@ -55,6 +55,13 @@ def number_ok(q, a):
     if q["expected_behavior"] == "answer" and any(mentions_number(n, text) for n in q.get("wrong_numbers", [])):
         return False
     return all(mentions_number(n, text) for n in q["expected_numbers"])
+
+
+def supporting_ok(q, a):
+    """The figures the question did not ask for but the reference gives. Reported apart, as completeness."""
+    if not q.get("supporting_numbers"):
+        return None
+    return all(mentions_number(n, a["answer"] + " " + (a["correction"] or "")) for n in q["supporting_numbers"])
 
 
 def citation_hit(q, a):
@@ -171,6 +178,7 @@ def run_mode(mode, answerer, questions, complete):
             if q["id"] in done:
                 # checks that need no model are scored again, so a fixed check applies to saved answers
                 done[q["id"]]["number_ok"] = number_ok(q, done[q["id"]]["answer"])
+                done[q["id"]]["supporting_ok"] = supporting_ok(q, done[q["id"]]["answer"])
                 continue
             started = time.perf_counter()
             try:
@@ -184,6 +192,7 @@ def run_mode(mode, answerer, questions, complete):
                 continue
             record = {"id": q["id"], "type": q["type"], "question": q["question"], "answer": answer, "trace": trace,
                       "seconds": seconds, "behaviour_ok": behaviour_ok(q, answer), "number_ok": number_ok(q, answer),
+                      "supporting_ok": supporting_ok(q, answer),
                       "citation_hit": citation_hit(q, answer), "judge_correct": correct}
             done[q["id"]] = record
             f.write(json.dumps(record, ensure_ascii=False) + "\n")

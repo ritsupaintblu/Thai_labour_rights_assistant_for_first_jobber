@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from eval.run_answers import behaviour_row, correction_ok, number_ok
+from eval.run_answers import behaviour_row, correction_ok, number_ok, supporting_ok
 
-from src.agent.loop import WRITE, Agent
+from src.agent.loop import WRITE, Agent, focus
 from src.agent.steps import ASK, BELIEF, CHECK, REWRITE, check_belief, check_results, needs_input
 from src.agent.tools.calculate import calculate
 from src.agent.tools.search_law import SearchLaw, section_rows
-from src.answer import FORMAT, GAVE_UP, Evidence, build_answer, mentions_number
+from src.answer import FORMAT, GAVE_UP, Evidence, build_answer, mentions_number, section_id
 from src.retrieval.corpus import Hit
 from src.retrieval.rerank import search_both
 
@@ -176,6 +176,19 @@ class BuildAnswer(unittest.TestCase):
         evidence.add_rate({"status": "found", "name": "min_wage_daily", "value": 372, "unit": "baht_per_day", "clause": "ข้อ 4", "effective_from": "2025-07-01", "source": "ประกาศ"})
         with self.assertRaisesRegex(ValueError, "not in the search results"):
             build_answer(draft(answer="วันละ 372 บาท", citations=[{"law": "ไม่มีจริง", "section": "9"}]), evidence)
+
+
+class SectionId(unittest.TestCase):
+    def test_paragraphs_and_prefixes_are_dropped(self):
+        self.assertEqual(section_id("มาตรา 119 (5)"), "119")
+        self.assertEqual(section_id("s.46"), "46")
+        self.assertEqual(section_id("118 วรรคหนึ่ง"), "118")
+        self.assertEqual(section_id("41/1"), "41/1")
+        self.assertEqual(section_id("47 ทวิ"), "47 ทวิ")
+        self.assertEqual(section_id("47 สัตต"), "47 สัตต")
+
+    def test_every_section_in_the_corpus_reads_as_itself(self):
+        self.assertEqual([s for _, s in section_rows() if section_id(s) != s], [])
 
 
 class MentionsNumber(unittest.TestCase):
@@ -386,6 +399,27 @@ class AgentLoop(unittest.TestCase):
         self.assertFalse(needs_input("q", complete).needs_input)
         self.assertFalse(check_results("q", "c", complete).covers_topic)
         self.assertFalse(check_belief("ใช่ไหม", "c", complete).belief_is_wrong)
+
+
+class AnswerChecks(unittest.TestCase):
+    def test_a_real_quote_about_something_else_does_not_count(self):
+        context = "ลาคลอดได้ไม่เกิน 120 วัน\n\nฝ่าฝืนข้อบังคับเกี่ยวกับการทำงานหรือระเบียบของนายจ้าง"
+        reply = lambda quote: lambda messages, tools=None: text(json.dumps({"covers_topic": True, "answers": True, "quote": quote}))
+        self.assertFalse(check_results("หนังสือเตือนมีอายุนานแค่ไหน", context, reply("ฝ่าฝืนข้อบังคับเกี่ยวกับการทำงานหรือระเบียบ")).answers)
+        self.assertTrue(check_results("ลาคลอดได้กี่วัน", context, reply("ลาคลอดได้ไม่เกิน 120 วัน")).answers)
+
+    def test_the_answer_sees_the_quoted_section_only(self):
+        rows = [{"law": "LPA2541", "section": "23", "text": "ไม่เกินสี่สิบแปดชั่วโมง"},
+                {"law": "MARITIME2558", "section": "48", "text": "คนประจำเรือ"},
+                {"law": "LPA2541", "section": "24", "text": "ทำงานล่วงเวลา"}]
+        self.assertEqual([r["section"] for r in focus(rows, "สี่สิบแปดชั่วโมง")], ["23"])
+        self.assertEqual(len(focus(rows, "ไม่มีในผลค้น")), 3)
+
+    def test_supporting_figures_are_scored_apart(self):
+        q = {"expected_number": 75, "expected_numbers": [75], "supporting_numbers": [3], "expected_behavior": "answer"}
+        answer = {"answer": "จ่ายร้อยละ 75", "correction": None, "calculation": None}
+        self.assertTrue(number_ok(q, answer))
+        self.assertFalse(supporting_ok(q, answer))
 
 
 class SearchBoth(unittest.TestCase):
