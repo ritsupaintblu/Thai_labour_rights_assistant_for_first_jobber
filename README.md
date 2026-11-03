@@ -350,6 +350,77 @@ The file was committed with its SHA-256 in `eval/heldout.lock` before any run, a
 - **Weak spots seen in tuning are confirmed.** Corrections were missed when the belief had no trigger word (`H18`, `H19`). `H21` was corrected from the wrong section. Asking back worked only where `get_rate` needed a district (`H22`), and `H05` and `H09` asked when it was not needed. `H08`, on pay for spouse-support leave, was refused in 2 runs and failed to produce an answer in the third. `H12` never found the 90-day maternity benefit.
 - **Citations of rates do not count as gold.** `H10` and `H11` cite the rate announcement's clause, which has no law code, so they miss the labelled section even though the rate is right.
 
+### Fixes, and a second held-out check
+
+Commit `2ffbd32` made 7 changes aimed at the weak spots above:
+
+- **A year in the question sets the date.** "ปี 2572" or "ตุลาคม 2574" is passed to `calculate` and `get_rate` as `as_of`, so a future contribution uses that year's ceiling.
+- **Pay that is a share of the daily wage.** `calculate` has a `wage_share` kind for rules such as pay while suspended (s.116) or during a temporary closure (s.75). The percentage must be written in the section it cites, so the model cannot pair a rule with a figure from somewhere else.
+- **Figures the user did not give are asked for.** A wage of 0 means not given. The agent then asks for it instead of guessing, but only when the question asks for an amount.
+- **Beliefs without a trigger word.** A question that reports what someone said ("เพื่อนบอกว่า", "นายจ้างบอกว่า") is also checked for a wrong belief. The check must quote, word for word, the text that contradicts the belief.
+- **Rules for a group the question does not mention are dropped.** A section written for pregnant employees, children, seafarers or a similar group is removed from the results unless the question mentions that group. An age under 18 counts as mentioning children.
+- **Results that do not cover the question are dropped.** When a section answers the question, the answer no longer states a rate or calculation whose own check does not cover the question.
+- **Rate citations count when labelled.** A citation of a rate announcement counts as gold when the question lists that announcement in `gold_sources`. This changes the scoring, not the system.
+
+These changes were tuned on the 100 questions, the controls and the first held-out set, which is now development data. Before any fix was written, `eval/heldout2.jsonl` was committed with its lock in `dc4a859`. It holds 60 new questions:
+
+- 14 general
+- 10 trap
+- 10 calculation
+- 8 correction: 4 with a trigger word and 4 without
+- 8 clarification
+- 10 out of scope
+
+The agent from before the fixes ran on it 3 times, from a separate checkout of that commit. Its scores were not read until the fixed agent had also run 3 times. Both are scored by the same code with `python eval/run_heldout.py --set=heldout2 --label=before`, or `--label=fixed`.
+
+| Measure, 60 new questions | Before, 3 runs | 95% interval | After, 3 runs | 95% interval |
+|---|---:|---:|---:|---:|
+| Expected behaviour | 46/60 | 65-86% | 48-50/60 | 68-88% |
+| Figures the question asks for, no outdated one | 22/31 | 53-84% | 25/31 | 64-91% |
+| Cites a gold section | 34-35/42 | 67-90% | 35/42 | 69-92% |
+| LLM judge says correct | 27-28/42 | 49-77% | 30-31/42 | 56-83% |
+
+| By type | Before | After |
+|---|---:|---:|
+| General: expected behaviour | 12/14 | 12/14 |
+| Trap: expected behaviour | 8/10 | 8/10 |
+| Calculation: right amount | 5/10 | 7/10 |
+| Correction: expected behaviour | 3/8 | 4-5/8 |
+| Clarification: asked back | 5/8 | 5-6/8 |
+| Out of scope: refused | 8/10 | 9/10 |
+| Asked back when not needed | 2-3/52 | 3/52 |
+| Corrected when there was nothing to correct | 0/52 | 0/52 |
+
+The tuned set was run once with the fixed agent: `python eval/run_answers.py agent --out=eval/results/after_fixes`. The "before" column rescores the saved answers from the Results section with the current scoring. That is why its citations read 67/74 there, not 61/74.
+
+| Measure, tuned set, 1 run each | Before | After |
+|---|---:|---:|
+| Expected behaviour | 92/100 | 90/100 |
+| Figures the question asks for, no outdated one | 52/58 | 50/58 |
+| Cites a gold section | 67/74 | 64/74 |
+| LLM judge says correct | 65/74 | 62/74 |
+| Asked back when not needed | 4/92 | 6/92 |
+| Correction with the right content | 9/10 | 8/10 |
+
+- **New questions gained a little, within the noise.** Each measure rose by 1 to 3 questions out of 60, but the intervals overlap almost entirely.
+  - 6 questions improved in all 3 runs. `N17`, `N30` and `N31` give a year. `N35` reports a belief with "บอกว่า". `N50` now asks back, and `N56`, a freelance tax question, is now refused.
+  - `N47` got worse. Before the fixes it asked for the province in all 3 runs. Now it is refused in 2 of them.
+- **The new set was not fully blind.** I wrote the 60 questions knowing which fixes were planned. Three of the 6 gains need a year in the question, and the correction questions use the reported-speech words the fix looks for. The labels are one person's judgement.
+- **The tuned set dropped slightly.** Each measure fell by 2 or 3 questions, from one run each. Some of the changes are the same in both sets:
+  - A minimum-wage question with no province is refused instead of asked back (`A03`, `N47`).
+  - `G16` and `G31` now ask how long the user has worked, which their answers do not need.
+- **`wage_share` is not used yet.**
+  - `N32` asks for pay during a temporary closure. The model did the arithmetic itself and answered 3,500 instead of 3,000 baht.
+  - `N34` used the compensation kind for maternity pay, and the check that drops an unrelated calculation missed it.
+- **Corrections without a trigger word still miss.** `N36` was refused. `N37` states the right rule without correcting the belief. `N38` answered from the wrong paragraph.
+- **Asking back is still uneven.**
+  - `N16` asks for the district, although it names Koh Samui.
+  - `N09` and `N21` ask back when the law already answers them.
+  - `N45` answers instead of asking.
+  - `N49` refuses instead of asking for the wage.
+- **Some answers were generated twice.** For part of the fixed runs, two copies of the runner wrote to the same files at once. Both ran the same code. The scoring keeps the last answer for each question.
+- **These results were not used to change the system.** The next fixes, for the province refusal, the tenure questions and `wage_share`, need a new locked set to be measured.
+
 ## Project structure
 
 ```
@@ -378,6 +449,7 @@ The file was committed with its SHA-256 in `eval/heldout.lock` before any run, a
 │   ├── run_answers.py        # Evals 2-4: baseline, RAG, agent
 │   ├── controls.jsonl        # questions the agent should not ask about or correct
 │   ├── heldout.jsonl         # 30 locked questions written after tuning
+│   ├── heldout2.jsonl        # 60 locked questions written before the fixes
 │   ├── run_heldout.py        # runs them several times and reports ranges
 │   └── results/              # every saved answer
 ├── requirements.txt          # pinned Python dependencies
@@ -440,6 +512,8 @@ curl -X POST http://localhost:8000/ask \
 python eval/run_retrieval.py
 python eval/sweep_min_score.py
 python eval/run_answers.py baseline rag agent
+python eval/run_heldout.py                    # first held-out set, 3 runs
+python eval/run_heldout.py --set=heldout2 --label=fixed
 ```
 
 ## Limitations

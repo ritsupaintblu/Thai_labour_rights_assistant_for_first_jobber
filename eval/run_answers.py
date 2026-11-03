@@ -177,7 +177,7 @@ def run_controls(answerer):
 
 
 def run_mode(mode, answerer, questions, complete):
-    OUT.mkdir(exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"answers_{mode}.jsonl"
     done = {}
     if path.exists():
@@ -231,6 +231,12 @@ def summarize(mode, records):
 
 
 def main():
+    """--out=DIR saves the answers and both summaries in DIR, leaving the default results alone."""
+    global OUT, SUMMARY, BEHAVIOUR
+    out = next((a[6:] for a in sys.argv[1:] if a.startswith("--out=")), None)
+    if out:
+        OUT = ROOT / out
+        SUMMARY, BEHAVIOUR = OUT / "summary.csv", OUT / "behaviour.csv"
     modes = [a for a in sys.argv[1:] if not a.startswith("--")]
     ids = next((a[6:].split(",") for a in sys.argv[1:] if a.startswith("--ids=")), None)
     with open(QUESTIONS, encoding="utf-8") as f:
