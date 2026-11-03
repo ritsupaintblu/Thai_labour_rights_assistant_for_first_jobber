@@ -1,12 +1,12 @@
 """The held-out check: the agent on 30 questions it was never tuned on, run several times to see how much it varies.
 
-    python eval/run_heldout.py              # 3 runs
-    python eval/run_heldout.py --runs=5
+    python eval/run_heldout.py                               # eval/heldout.jsonl, 3 runs
+    python eval/run_heldout.py --set=heldout2 --label=fixed  # another locked set, saved under a label
 
-eval/heldout.jsonl was written from the statutes after tuning finished, and locked by eval/heldout.lock before any
-run. The script refuses to start if the file no longer matches its hash, so the questions cannot be edited to fit
-the results. Each run is saved to eval/results/heldout/run<n>/, so an interrupted run carries on. The summaries are
-eval/results_heldout.csv (each run, then the range) and eval/results_heldout_questions.csv (each question's outcomes).
+Each set eval/<set>.jsonl was written from the statutes and locked by eval/<set>.lock before any run. The script
+refuses to start if the file no longer matches its hash, so the questions cannot be edited to fit the results.
+Each run is saved to eval/results/<set>/[<label>/]run<n>/, so an interrupted run carries on. The summaries are
+eval/results_<set>[_<label>].csv (each run, then the range) and eval/results_<set>[_<label>]_questions.csv.
 """
 
 import csv
@@ -23,19 +23,15 @@ from run_answers import METRICS, agent_answerer, behaviour_row, correction_ok, r
 from src.llm import load_complete  # noqa: E402
 from src.retrieval.corpus import ROOT  # noqa: E402
 
-HELDOUT = ROOT / "eval" / "heldout.jsonl"
-LOCK = ROOT / "eval" / "heldout.lock"
-OUT = ROOT / "eval" / "results" / "heldout"
-SUMMARY = ROOT / "eval" / "results_heldout.csv"
-PER_QUESTION = ROOT / "eval" / "results_heldout_questions.csv"
 BEHAVIOUR = ["ask_recall", "over_ask", "ask_precision", "correction_filled", "correction_right", "false_corrections"]
 
 
-def load_locked():
-    data = HELDOUT.read_bytes().replace(b"\r\n", b"\n")  # so a Windows checkout gives the same hash
-    expected = json.loads(LOCK.read_text(encoding="utf-8"))["sha256"]
+def load_locked(name):
+    path, lock = ROOT / "eval" / f"{name}.jsonl", ROOT / "eval" / f"{name}.lock"
+    data = path.read_bytes().replace(b"\r\n", b"\n")  # so a Windows checkout gives the same hash
+    expected = json.loads(lock.read_text(encoding="utf-8"))["sha256"]
     if hashlib.sha256(data).hexdigest() != expected:
-        raise SystemExit(f"{HELDOUT.name} does not match {LOCK.name}. The held-out questions must not change after locking")
+        raise SystemExit(f"{path.name} does not match {lock.name}. The held-out questions must not change after locking")
     return [json.loads(line) for line in data.decode("utf-8").splitlines() if line.strip()]
 
 
@@ -62,13 +58,16 @@ def outcomes(q, record):
 
 
 def main():
-    runs = next((int(a[7:]) for a in sys.argv[1:] if a.startswith("--runs=")), 3)
-    questions = load_locked()
+    args = dict(a[2:].split("=", 1) for a in sys.argv[1:] if a.startswith("--") and "=" in a)
+    runs, name, label = int(args.get("runs", 3)), args.get("set", "heldout"), args.get("label", "")
+    out = ROOT / "eval" / "results" / name / label
+    stem = ROOT / "eval" / f"results_{name}{'_' + label if label else ''}"
+    questions = load_locked(name)
     complete = load_complete()
     answerer = agent_answerer(complete)
     rows, per_run = [], []
     for n in range(1, runs + 1):
-        run_answers.OUT = OUT / f"run{n}"  # run_mode saves and resumes from here
+        run_answers.OUT = out / f"run{n}"  # run_mode saves and resumes from here
         run_answers.OUT.mkdir(parents=True, exist_ok=True)
         records = run_mode("agent", answerer, questions, complete)
         if len(records) < len(questions):
@@ -86,14 +85,14 @@ def main():
         rows.append({"run": "range", "group": group, "questions": rs[0].get("questions", ""),
                      **{m: spread([r.get(m, "") for r in rs]) for m in fields}})
     fields = ["run", "mode", "group", "questions", *METRICS, "seconds_per_question", *BEHAVIOUR, "over_asked"]
-    with open(SUMMARY, "w", encoding="utf-8", newline="") as f:
+    with open(f"{stem}.csv", "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
     # each question across runs, so a flip shows which question moved and on what
     names = [*METRICS, "correction_ok", "asked", "refused"]
-    with open(PER_QUESTION, "w", encoding="utf-8", newline="") as f:
+    with open(f"{stem}_questions.csv", "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["id", "type", "expected_behavior", *names, "flips"])
         for q in questions:

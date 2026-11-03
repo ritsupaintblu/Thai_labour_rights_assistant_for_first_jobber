@@ -1,0 +1,7 @@
+{
+ "file": "eval/heldout2.jsonl",
+ "sha256": "0c9f5a2d453967b9c43a01b9b3fc99f9bd90194c6bb25af233031c483dfc7cc4",
+ "questions": 60,
+ "locked": "2026-11-03",
+ "note": "Written from the statutes before the fixes after the first held-out check. Do not edit; do not tune the system on its results."
+}
