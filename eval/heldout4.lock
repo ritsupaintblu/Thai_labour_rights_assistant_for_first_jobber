@@ -1,0 +1,7 @@
+{
+ "file": "eval/heldout4.jsonl",
+ "sha256": "7a61fea18b0af4b6f9f715617618aa80d6e3024c596a672cde08d01db17f7fe1",
+ "questions": 48,
+ "locked": "2026-11-04",
+ "note": "Written from the statutes before the fix that asks for the figures a formula needs. Do not edit; do not tune the system on its results."
+}
