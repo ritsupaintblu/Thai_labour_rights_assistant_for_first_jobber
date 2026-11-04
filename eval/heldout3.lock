@@ -1,0 +1,7 @@
+{
+ "file": "eval/heldout3.jsonl",
+ "sha256": "b46378f08fe28537c33e020784cbca8e0288aecbc99d76a783c06668d6ed8cd9",
+ "questions": 60,
+ "locked": "2026-11-04",
+ "note": "Written from the statutes before the asking-back and calculation fixes. Do not edit; do not tune the system on its results."
+}
