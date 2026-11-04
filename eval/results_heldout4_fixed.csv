@@ -1,0 +1,25 @@
+run,mode,group,questions,behaviour_ok,number_ok,supporting_ok,citation_hit,judge_correct,seconds_per_question,ask_recall,over_ask,ask_precision,correction_filled,correction_right,false_corrections,over_asked
+1,agent,all,48,44/48,22/26,2/4,25/28,24/28,56.6,,,,,,,
+1,agent,clarification,14,13/14,,,,,72.7,,,,,,,
+1,agent,general,18,15/18,13/16,2/4,15/18,15/18,70.2,,,,,,,
+1,agent,calculation,10,10/10,9/10,,10/10,9/10,28.1,,,,,,,
+1,agent,out_of_scope,6,6/6,,,,,25.7,,,,,,,
+1,agent,behaviour,,,,,,,,13/14,3/34,13/16,0/0,0/0,0/48,Q16 Q17 Q20
+2,agent,all,48,45/48,22/26,2/4,25/28,24/28,12.6,,,,,,,
+2,agent,clarification,14,14/14,,,,,4.5,,,,,,,
+2,agent,general,18,15/18,13/16,2/4,15/18,15/18,7.6,,,,,,,
+2,agent,calculation,10,10/10,9/10,,10/10,9/10,38.7,,,,,,,
+2,agent,out_of_scope,6,6/6,,,,,3.2,,,,,,,
+2,agent,behaviour,,,,,,,,14/14,3/34,14/17,0/0,0/0,0/48,Q16 Q17 Q20
+3,agent,all,48,45/48,22/26,2/4,25/28,24/28,14.6,,,,,,,
+3,agent,clarification,14,14/14,,,,,8.7,,,,,,,
+3,agent,general,18,15/18,13/16,2/4,15/18,15/18,8.5,,,,,,,
+3,agent,calculation,10,10/10,9/10,,10/10,9/10,40.2,,,,,,,
+3,agent,out_of_scope,6,6/6,,,,,3.9,,,,,,,
+3,agent,behaviour,,,,,,,,14/14,3/34,14/17,0/0,0/0,0/48,Q16 Q17 Q20
+range,,all,48,44-45/48,22/26,2/4,25/28,24/28,,,,,,,,
+range,,clarification,14,13-14/14,,,,,,,,,,,,
+range,,general,18,15/18,13/16,2/4,15/18,15/18,,,,,,,,
+range,,calculation,10,10/10,9/10,,10/10,9/10,,,,,,,,
+range,,out_of_scope,6,6/6,,,,,,,,,,,,
+range,,behaviour,,,,,,,,13-14/14,3/34,13/16 to 14/17,0/0,0/0,0/48,

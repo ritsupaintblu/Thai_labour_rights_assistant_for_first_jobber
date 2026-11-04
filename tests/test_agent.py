@@ -455,6 +455,46 @@ class AgentLoop(unittest.TestCase):
                                  tool_replies=[tool_call("calculate", {"kind": "severance", "wage": 0, "years": 22})])
         self.assertIsNone(answer.clarifying_question)
 
+    SEVERANCE = {**CHUNK, "section": "118", "text": "ให้นายจ้างจ่ายค่าชดเชยให้แก่ลูกจ้างซึ่งเลิกจ้าง ทำงานครบสามปี"
+                                                    "ให้จ่ายไม่น้อยกว่าค่าจ้างอัตราสุดท้ายหนึ่งร้อยแปดสิบวัน"}
+    OVERTIME = {**CHUNK, "section": "61", "text": "ให้นายจ้างจ่ายค่าล่วงเวลาให้แก่ลูกจ้างในอัตราไม่น้อยกว่าหนึ่งเท่าครึ่ง"
+                                                 "ของอัตราค่าจ้างต่อชั่วโมงในวันทำงานตามจำนวนชั่วโมงที่ทำ"}
+    NOT_ANSWERED = {"covers_topic": True, "answers": False, "quote": ""}
+
+    def test_code_asks_for_the_figures_of_a_formula_when_the_question_gives_none(self):
+        # the model called no tool, and without the figures the check found that no section answers
+        answer, trace, _ = run_agent(question="บริษัทปิดกิจการ จะได้ค่าชดเชยกี่บาท", hits=[Hit(self.SEVERANCE, 0.9)],
+                                     check=self.NOT_ANSWERED)
+        self.assertEqual(answer.clarifying_question, "ขอทราบค่าจ้าง และ อายุงาน")
+        self.assertIn('"severance"', next(t for t in trace if t["arguments"].startswith("by code"))["arguments"])
+
+    def test_figures_are_not_asked_for_a_formula_that_does_not_cover_the_question(self):
+        answer, _, _ = run_agent(question="บริษัทปิดกิจการ จะได้ค่าชดเชยกี่บาท", hits=[Hit(self.SEVERANCE, 0.9)],
+                                 check={"covers_topic": False, "answers": False, "quote": ""})
+        self.assertIsNone(answer.clarifying_question)
+
+    def test_a_rule_paying_a_share_of_the_wage_answers_without_figures(self):
+        sick = {**CHUNK, "section": "57", "text": "ให้นายจ้างจ่ายค่าจ้างให้แก่ลูกจ้างในวันลาป่วยเท่ากับอัตราค่าจ้างในวันทำงาน"}
+        answer, trace, _ = run_agent(question="ลาป่วยแล้วได้ค่าจ้างเท่าไร", hits=[Hit(sick, 0.9)],
+                                     check={"covers_topic": True, "answers": True, "quote": sick["text"]},
+                                     final=[draft(answer="ได้เท่ากับค่าจ้างในวันทำงาน", citations=[{"law": "LPA2541", "section": "57"}])])
+        self.assertIsNone(answer.clarifying_question)
+        self.assertFalse([t for t in trace if t["tool"] in ("calculate", "calculate_from")])
+
+    def test_a_question_about_the_rate_is_answered_without_figures(self):
+        answer, _, _ = run_agent(question="ค่าล่วงเวลาได้อัตราเท่าไร", hits=[Hit(self.OVERTIME, 0.9)],
+                                 check={"covers_topic": True, "answers": True, "quote": self.OVERTIME["text"]},
+                                 final=[draft(answer="หนึ่งเท่าครึ่งของค่าจ้างต่อชั่วโมง", citations=[{"law": "LPA2541", "section": "61"}])])
+        self.assertIsNone(answer.clarifying_question)
+
+    def test_given_some_figures_the_formula_that_covers_the_question_asks_for_the_rest(self):
+        complete = fake_model(tool_replies=[text("พร้อมสรุป"), tool_call("calculate", {"kind": "overtime", "wage": 0, "hours": 3})],
+                              check=self.NOT_ANSWERED)
+        agent = Agent(search_law(), lambda question, rewrite, k=5: [Hit(self.OVERTIME, 0.9)], complete)
+        answer, trace = agent.run("เมื่อวานทำโอที 3 ชั่วโมง จะได้เงินเท่าไร")
+        self.assertEqual(answer.clarifying_question, "ขอทราบค่าจ้าง")
+        self.assertEqual(next(t for t in trace if t["tool"] == "calculate_from")["status"], "needs_input")
+
     def test_asks_for_the_wage_a_calculation_needs_even_with_a_rate_found(self):
         replies = [tool_call("get_rate", {"name": "sso_employee_rate_percent"}), tool_call("calculate", {"kind": "sso_contribution", "wage": 0})]
         answer, _, _ = run_agent(question="ประกันสังคมหักเดือนละเท่าไร", tool_replies=replies)

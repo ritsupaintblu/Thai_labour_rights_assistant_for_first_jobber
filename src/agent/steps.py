@@ -246,11 +246,15 @@ def question_date(question, as_of):
     return f"{year}-{month:02d}-01"
 
 
+def gives_figures(question):
+    """Whether the question gives a number other than a year, such as a wage, hours or tenure."""
+    return re.search(r"\d", CE_YEAR.sub("", BE_YEAR.sub("", question))) is not None
+
+
 def asks_own_deduction(question, topic):
     """How much is deducted from the asker's pay, with no figure given but a year: only the wage can answer it."""
-    without_years = CE_YEAR.sub("", BE_YEAR.sub("", question))
     return bool(topic.search(question) and DEDUCTED.search(question) and ASKS_AN_AMOUNT.search(question)
-                and not ASKS_A_RATE.search(question) and not re.search(r"\d", without_years))
+                and not ASKS_A_RATE.search(question) and not gives_figures(question))
 
 
 def is_minor(text):

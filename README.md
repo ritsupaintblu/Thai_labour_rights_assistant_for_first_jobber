@@ -421,6 +421,133 @@ The tuned set was run once with the fixed agent: `python eval/run_answers.py age
 - **Some answers were generated twice.** For part of the fixed runs, two copies of the runner wrote to the same files at once. Both ran the same code. The scoring keeps the last answer for each question.
 - **These results were not used to change the system.** The next fixes, for the province refusal, the tenure questions and `wage_share`, need a new locked set to be measured.
 
+### Asking back and calculations, and a third held-out check
+
+The next round changed when the agent asks back and how it calculates. Each rule is meant to hold for any question, not for one set:
+
+- **The law decides when a fact is missing, not the model.** The model's own ask step was removed, because it asked about things the answer did not need. Now the agent asks for a fact only when it finds all of these:
+  - At least two sections in the results each answer the question alone.
+  - Those sections give different answers.
+  - Both sections are in the same Act.
+  - The case each section covers is quoted word for word from the results.
+- **Figures are asked for only when the rule that needs them covers the question.** A tool's missing input, such as the wage or the province, is asked for only when the check finds that the section or rate it belongs to covers the question. A question about another country's minimum wage no longer asks for a Thai province.
+- **Code looks up what the question names.** For a minimum-wage question, code looks up the rate even if the model does not call `get_rate`. A place named in the question overrides the one the model passes. A province the table does not know is asked for instead of rejected. A question about the user's own social-security or provident-fund deduction that gives no wage asks for the wage.
+- **Calculations follow the section that answers.** Suppose that section has a formula and the question gives figures, but the model did not calculate. Then one more call is made, with `calculate` as the only tool. Its result is kept only if its legal basis is that section. Formulas now show the daily rate.
+- **Every number in an answer must have a source.** Each number must appear in the retrieved text, a tool result or the question. It may also be a single product, quotient or percentage of those numbers. Otherwise the answer is written again. If the retries fail, the answer is built from the tool results.
+
+These changes were tuned on the 100 questions, the controls and both earlier held-out sets. Before any fix was written, `eval/heldout3.jsonl` and its lock were written. They hold 60 new questions, `P01` to `P60`, mostly on sections that no earlier set used:
+
+- 14 general
+- 10 trap
+- 10 calculation
+- 8 correction: 4 with a trigger word and 4 without
+- 8 clarification
+- 10 out of scope
+
+The agent from `f0f10c3` ran on it 3 times, from a separate checkout. The changed agent then also ran 3 times. Both are scored by the same code with `python eval/run_heldout.py --set=heldout3 --label=before`, or `--label=fixed`.
+
+| Measure, 60 new questions | Before, 3 runs | 95% interval | After, 3 runs | 95% interval |
+|---|---:|---:|---:|---:|
+| Expected behaviour | 48-51/60 | 68-92% | 50/60 | 72-91% |
+| Figures the question asks for, no outdated one | 21/29 | 54-85% | 23-24/29 | 62-92% |
+| Cites a gold section | 35-36/42 | 69-93% | 37-38/42 | 75-96% |
+| LLM judge says correct | 33-34/42 | 64-90% | 37-38/42 | 75-96% |
+
+| By type | Before | After |
+|---|---:|---:|
+| General: expected behaviour | 11-12/14 | 13-14/14 |
+| Trap: expected behaviour | 9/10 | 9/10 |
+| Calculation: right amount | 8-9/10 | 9/10 |
+| Correction: expected behaviour | 3-5/8 | 4-5/8 |
+| Clarification: asked back | 5/8 | 3/8 |
+| Out of scope: refused | 10/10 | 10/10 |
+| Asked back when not needed | 3-4/52 | 1-2/52 |
+| Corrected when there was nothing to correct | 0/52 | 0/52 |
+
+The tuned set was run once with the changed agent: `python eval/run_answers.py agent --out=eval/results/after_fixes2`. The comparison is the `after_fixes` run of `f0f10c3`.
+
+| Measure, tuned set, 1 run each | Before | After |
+|---|---:|---:|
+| Expected behaviour | 90/100 | 94/100 |
+| Figures the question asks for, no outdated one | 50/58 | 52/58 |
+| Cites a gold section | 64/74 | 69/74 |
+| LLM judge says correct | 62/74 | 62/74 |
+| Asked back | 5/8 | 5/8 |
+| Asked back when not needed | 6/92 | 1/92 |
+| Correction with the right content | 8/10 | 7/10 |
+| Control questions refused | 0/14 | 0/14 |
+
+- **Over-asking fell, but so did needed asking.** On the new set, 3 questions stopped asking back when they should not: `P03`, `P11` and `P21`. They are now answered from the right section. `P47`, "ลางานได้ปีละกี่วัน", now asks which kind of leave. But 3 questions that should ask now answer instead:
+  - `P43` asks for severance with no tenure or wage. `P45` asks for overtime pay with no wage. The model did not call `calculate`, so no tool reported a missing figure. The extra calculation runs only when the question has figures. These questions now get the rule without an amount. The tuned set has the same gap: `N44` and `A01`.
+  - `P50` asks for the compensation rate for an injury, and the answer depends on whether the injury came from work. The two sections that differ are in two Acts, the Workmen's Compensation Act and the Social Security Act, and the agent does not ask across Acts.
+- **One new over-ask.** `P22`, on travel time after work, now asks whether the travel was on a holiday. The three sections it found each answer the question, and the check reported a difference that the question did not need.
+- **Minimum-wage figures improved.** `P16` names Chiang Mai's Mueang district. Code now looks up that district's rate and answers 380 baht, where the old agent answered 357. `P15` no longer adds the 400-baht rate for hotels and entertainment venues, which the label counts as the wrong figure for this question.
+- **A wrong tool kind still gets through.** `P30` asks for holiday work pay. The model used the holiday-overtime kind, which gives 1,800 instead of 600 baht. The check found that section 63 also covers the question, so the result was kept. Before the change, the answer gave the rule without an amount.
+- **The new set was not fully blind.**
+  - I wrote the 60 questions knowing which fixes were planned.
+  - While the old agent ran, its scores for `P11` and `P12` appeared in the log before the changed agent had run.
+  - The labels are one person's judgement.
+  - With 8 clarification questions, a 95% interval for 3/8 is 14-69%.
+- **The code is not committed yet.** All 6 runs on the new set used one version of the code. Its diff from `f0f10c3` has a SHA-256 starting `719e93d3c8515f30`.
+- **These results were not used to change the system.** The next fix would ask for figures when the section that answers needs them and the question has none. It needs a new locked set to be measured.
+
+### Asking for the figures a formula needs, and a fourth held-out check
+
+One change followed. When a question asks for an amount and no calculation was made, the agent picks the section to calculate from:
+
+- The section that answers, if it has a formula `calculate` knows or pays a share of the wage.
+- Otherwise, the first section that covers the question with a formula `calculate` knows. Asked without figures, the check often found that no section answers, as in `P43` and `P45`.
+
+Then:
+
+- **The question gives figures.** The model calculates once more from that section alone, and the agent asks for what `calculate` reports missing.
+- **The question gives none.** Code calls `calculate` for that section's formula with no figures, and asks for what it reports missing. The model cannot guess a figure.
+- **No figures are asked for in these cases:**
+  - The section only pays a share of the wage, such as sick-leave pay. It answers with its rule.
+  - The question asks for a rate or a ceiling, with a word such as "อัตรา" or "สูงสุด".
+
+The change was tuned on the 100 questions, the controls and the three earlier held-out sets. On the 100 questions it gave:
+
+- **Expected behaviour:** 94/100 before, 95/100 after.
+- **Asked back:** 5/8 before, 6/8 after.
+- **Asked back when not needed:** 1/92 in both. It is now `G12`, a question about the monthly compensation rate.
+
+Before the change was written, `eval/heldout4.jsonl` and its lock were written. They hold 48 money questions, `Q01` to `Q48`:
+
+- 14 clarification: an amount without some or all of the figures its formula needs
+- 12 general: an amount the law states without the user's figures, such as a ceiling or a share of the wage
+- 10 calculation: every figure given
+- 6 general questions that are not about an amount
+- 6 out of scope, asking for an amount
+
+The code from the previous section ran on it 3 times, from a separate checkout. The changed agent then also ran 3 times. Both are scored with `python eval/run_heldout.py --set=heldout4 --label=before`, or `--label=fixed`.
+
+| Measure, 48 new questions | Before, 3 runs | 95% interval | After, 3 runs | 95% interval |
+|---|---:|---:|---:|---:|
+| Expected behaviour | 45/48 | 83-98% | 44-45/48 | 80-98% |
+| Figures the question asks for, no outdated one | 25/26 | 81-99% | 22/26 | 66-94% |
+| Cites a gold section | 27-28/28 | 82-100% | 25/28 | 73-96% |
+| LLM judge says correct | 26-27/28 | 77-99% | 24/28 | 69-94% |
+| Asked back when it should | 11/14 | 52-92% | 13-14/14 | 69-100% |
+| Asked back when not needed | 0/34 | 0-10% | 3/34 | 3-23% |
+
+- **Asking for missing figures works.**
+  - `Q01` (severance) and `Q06` (overtime) gave no figures. They now ask in all 3 runs.
+  - `Q08` gave the hours but not the wage. It now asks in 2 of 3 runs. In the third, the check found no section covering the question, so it was refused.
+- **It costs as many questions as it gains.** Three questions now ask for figures that their answer does not need:
+  - `Q16` asks for the cap on special severance, "รวมแล้วได้ไม่เกินเท่าไร".
+  - `Q17` asks for the holiday-overtime multiple, "เมื่อเทียบกับค่าจ้างต่อชั่วโมง".
+  - `Q20` asks for the compensation rate as a share of the wage, "คิดเป็นเท่าไรของค่าจ้าง".
+
+  All three ask "how much" without figures, and their section has a formula. The rule cannot tell them from "how much will I get". On the tuned set, `G12` failed the same way. That is why the figure, citation and judge scores fell: those questions now ask instead of answering.
+- **A wrong formula still gets through.** `Q32` asks for holiday work pay. In every run, before and after, the model used the holiday-overtime kind and answered 1,620 instead of 540 baht. `P30` failed the same way. This change does not address it.
+- **The new set was not fully blind.**
+  - I wrote the 48 questions knowing the planned change. `Q15` to `Q26` were written to test for over-asking.
+  - While the old agent ran, its scores for `Q26` and `Q27` appeared in a log. The changed code had already been frozen.
+  - The labels are one person's judgement.
+- **The code is not committed yet.** All 3 changed runs used one version. Its diff from `f0f10c3` has a SHA-256 starting `2ba927151803745a`.
+- **These results were not used to change the system.**
+
 ## Project structure
 
 ```
@@ -450,6 +577,8 @@ The tuned set was run once with the fixed agent: `python eval/run_answers.py age
 │   ├── controls.jsonl        # questions the agent should not ask about or correct
 │   ├── heldout.jsonl         # 30 locked questions written after tuning
 │   ├── heldout2.jsonl        # 60 locked questions written before the fixes
+│   ├── heldout3.jsonl        # 60 locked questions written before the asking-back changes
+│   ├── heldout4.jsonl        # 48 locked money questions written before the figures change
 │   ├── run_heldout.py        # runs them several times and reports ranges
 │   └── results/              # every saved answer
 ├── requirements.txt          # pinned Python dependencies
@@ -514,6 +643,8 @@ python eval/sweep_min_score.py
 python eval/run_answers.py baseline rag agent
 python eval/run_heldout.py                    # first held-out set, 3 runs
 python eval/run_heldout.py --set=heldout2 --label=fixed
+python eval/run_heldout.py --set=heldout3 --label=fixed
+python eval/run_heldout.py --set=heldout4 --label=fixed
 ```
 
 ## Limitations

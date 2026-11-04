@@ -7,22 +7,23 @@
 2. Code searches with both wordings and drops sections written for a group the question does not mention.
    In parallel: one check over all the results, the same check on each section, rate and rule alone, whether a
    stated belief is wrong, and whether the law found gives different answers for a fact the question leaves out.
-3. If a section answers an amount question but no calculation fits it, the model calculates once more from that
-   section alone.
+3. For an amount question with no calculation, the section that answers decides, or else a section that covers the
+   question with a formula `calculate` knows. Given figures, the model calculates once more from that section alone.
+   Given none, code calls `calculate` for that formula, which reports the figures to ask for.
 4. Ask for a figure only when the rule that needs it covers the question, and for a fact only when two rules
    quoted from the results differ on it. Otherwise refuse, or write the answer from what the tools returned.
 """
 
 import json
-import re
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from src.agent.steps import (ASKS_AN_AMOUNT, DEDUCTION_TOPICS, RATE_TOPICS, applies, asks_own_deduction, check_belief,
-                             check_depends, check_each, check_results, question_date, rewrite_query, squeeze)
+from src.agent.steps import (ASKS_A_RATE, ASKS_AN_AMOUNT, DEDUCTION_TOPICS, RATE_TOPICS, applies, asks_own_deduction,
+                             check_belief, check_depends, check_each, check_results, gives_figures, question_date,
+                             rewrite_query, squeeze)
 from src.agent.tools.calculate import KIND_BASIS, calculate
 from src.agent.tools.get_rate import MIN_WAGE, get_rate, load_rates, place_in, rate_description
 from src.agent.tools.search_law import AS_OF, section_texts
@@ -158,6 +159,10 @@ def basis_key(basis):
     return law, section
 
 
+# the sections whose formula calculate knows, with its kind
+FORMULA_KIND = {basis_key(basis): kind for kind, basis in KIND_BASIS.items()}
+
+
 class Agent:
     def __init__(self, search_law, search_both, complete, max_steps=MAX_STEPS):
         self.search_law = search_law
@@ -271,6 +276,25 @@ class Agent:
         need = self.need("calculate", call.function.arguments, result)
         return [{**need, "rule": basis}] if need else []
 
+    def figures_for(self, row, trace):
+        """What the formula of this section needs from the user, from calculate itself, when the question gives no
+        figures. Called by code, so no figure can be guessed."""
+        arguments = json.dumps({"kind": FORMULA_KIND[key(row)], "wage": 0})
+        call = SimpleNamespace(function=SimpleNamespace(name="calculate", arguments=arguments))
+        result = self.run_tool(call, Evidence(), trace)
+        trace.append({"tool": "calculate", "arguments": f"by code: {arguments}", "status": result.get("status")})
+        need = self.need("calculate", arguments, result)
+        return [need] if need else []
+
+    @staticmethod
+    def amount_rule(rows, answering, covered):
+        """The section an amount question is calculated from: the one that answers, if it has a formula or pays a share
+        of the wage, or else the first that covers the question with a formula calculate knows. Asked without the
+        figures, the check often found that no section answers, so the formula that covers the question is used."""
+        if answering and (key(answering[0]) in FORMULA_KIND or "ค่าจ้าง" in squeeze(answering[0]["text"])):
+            return answering[0]
+        return next((r for r in rows if key(r) in FORMULA_KIND and key(r) in covered), None)
+
     def write_answer(self, question, context, belief, evidence):
         note = f"\nผู้ถามเข้าใจผิด สิ่งที่ถูกต้องคือ: {belief.law_says}\nให้ตอบโดยบอกตรง ๆ ว่าความเข้าใจนั้นไม่ถูกต้อง" if belief.belief_is_wrong else ""
         messages = [{"role": "system", "content": WRITE},
@@ -356,11 +380,15 @@ class Agent:
                 self.drop_calculation(evidence, trace)
         answering_rule = {key(answering[0])} if answering else set()
         needed = self.user_inputs(question, needs, evidence, covered | answering_rule)
-        # only with figures from the user to calculate with: asked for none, it asked for a wage the answer did not need
-        if answering and not needed and not evidence.calculation and ASKS_AN_AMOUNT.search(question) \
-                and re.search(r"\d", question) and "ค่าจ้าง" in squeeze(answering[0]["text"]):
-            needed = self.user_inputs(question, self.calculate_from(question, answering[0], evidence, trace, date),
-                                      evidence, answering_rule)
+        target = self.amount_rule(rows, answering, covered) \
+            if not needed and not evidence.calculation and ASKS_AN_AMOUNT.search(question) else None
+        if target and gives_figures(question):
+            needed = self.user_inputs(question, self.calculate_from(question, target, evidence, trace, date),
+                                      evidence, {key(target)})
+        # with no figures, only a formula calculate knows: a section paying a share of the wage, such as sick-leave pay,
+        # answers with its rule. A question about the rate or a ceiling needs no figures either
+        elif target and key(target) in FORMULA_KIND and not ASKS_A_RATE.search(question):
+            needed = self.user_inputs(question, self.figures_for(target, trace), evidence, {key(target)})
         context = context_text(focus(rows, answering[1].quote) if answering else rows, evidence)
         trace.append({"tool": "check", "arguments": answering[1].quote[:80] if answering else "",
                       "status": f"covers={covers} answers={answering is not None} belief_wrong={belief.belief_is_wrong} "
