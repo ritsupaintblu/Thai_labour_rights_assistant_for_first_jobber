@@ -506,7 +506,7 @@ Then:
   - The section only pays a share of the wage, such as sick-leave pay. It answers with its rule.
   - The question asks for a rate or a ceiling, with a word such as "อัตรา" or "สูงสุด".
 
-The change was tuned on the 100 questions, the controls and the three earlier held-out sets. On the 100 questions it gave:
+The change was tuned on the 100 questions, the controls and the three earlier held-out sets. The final code ran once on the 100 questions with `python eval/run_answers.py agent --out=eval/results/after_fixes3`. Compared with `after_fixes2`, it gave:
 
 - **Expected behaviour:** 94/100 before, 95/100 after.
 - **Asked back:** 5/8 before, 6/8 after.
