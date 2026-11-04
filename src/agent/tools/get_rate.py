@@ -4,7 +4,7 @@ Rates are exact and change over time, so they come from this versioned table ins
 The result is always a dict with a "status":
     found      - value, unit, effective dates and the source's manifest title
     not_found  - the table has no rate for that date, so the assistant must not guess
-    needs_input - "missing" lists what to ask the user for
+    needs_input - "missing" lists what to ask the user for, including a province the table does not know
     invalid    - the arguments were rejected; nothing was looked up
 """
 
@@ -27,6 +27,29 @@ def load_rates():
     with open(ROOT / "data" / "manifest.csv", encoding="utf-8-sig", newline="") as f:
         titles = {r["id"]: r["title"].strip() for r in csv.DictReader(f)}
     return rows, titles
+
+
+def rate_description(name):
+    """What a rate is, from its source in the table, so the agent can check it fits the question before asking for
+    the details it needs."""
+    rows, titles = load_rates()
+    sources = dict.fromkeys(titles[r["source_id"]] for r in rows if r["name"] == name)
+    places = " แตกต่างตามจังหวัดและพื้นที่" if any(r["province"] for r in rows if r["name"] == name) else ""
+    return f"{' และ '.join(sources)} ({name}) ของประเทศไทย{places}"
+
+
+def place_in(question):
+    """The (province, district) the question names, from the places in the rates table, or (None, None).
+    A district with its own rate, such as เกาะสมุย, also gives its province. The model often guessed these."""
+    rows, _ = load_rates()
+    text = "".join((question or "").split())
+    districts = {r["district"]: r["province"] for r in rows if r["district"]}
+    district = max((d for d in districts if d in text), key=len, default=None)
+    if district:
+        return districts[district], district
+    names = {r["province"]: r["province"] for r in rows if r["province"]} | PROVINCE_ALIASES
+    found = max((n for n in names if n in text), key=len, default=None)
+    return (names[found], None) if found else (None, None)
 
 
 def clean_place(text, prefix):
@@ -96,8 +119,8 @@ def get_rate(name, as_of, province=None, district=None, business=None):
     matches, missing = find_min_wage(current, province, clean_place(district, "อำเภอ"), business)
     if missing:
         return {"status": "needs_input", "missing": missing}
-    if matches is None:
-        return invalid(f"unknown province: {province}")
+    if matches is None:  # such as "ทุกจังหวัด": only the user can say where they work
+        return {"status": "needs_input", "missing": ["province"], "reason": f"unknown province: {province}"}
     result = found(matches[0], titles)
     if not business:
         result["note"] = "โรงแรมประเภท 2 3 และ 4 และสถานบริการใช้อัตรา 400 บาททุกจังหวัด"

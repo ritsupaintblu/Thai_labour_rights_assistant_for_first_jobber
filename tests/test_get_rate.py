@@ -87,6 +87,8 @@ class Lookups(unittest.TestCase):
     def test_asks_for_what_it_needs(self):
         self.assertEqual(get_rate("min_wage_daily", AS_OF), {"status": "needs_input", "missing": ["province"]})
         self.assertEqual(get_rate("min_wage_daily", AS_OF, province="เชียงใหม่"), {"status": "needs_input", "missing": ["district"]})
+        # a place the table does not know, such as "ทุกจังหวัด" from the model, is asked for rather than rejected
+        self.assertEqual(get_rate("min_wage_daily", AS_OF, province="ไม่มีจังหวัดนี้")["missing"], ["province"])
 
     def test_does_not_guess_outside_the_table(self):
         self.assertEqual(get_rate("sso_wage_base_max", "2020-01-01")["status"], "not_found")
@@ -94,7 +96,7 @@ class Lookups(unittest.TestCase):
 
     def test_rejects_bad_arguments(self):
         for args, kwargs in [(("bonus", AS_OF), {}), (("min_wage_daily", "01/11/2026"), {"province": "ยะลา"}),
-                             (("min_wage_daily", None), {}), (("min_wage_daily", AS_OF), {"province": "ไม่มีจังหวัดนี้"}),
+                             (("min_wage_daily", None), {}),
                              (("min_wage_daily", AS_OF), {"province": "ยะลา", "business": "bar"}),
                              (("sso_wage_base_max", AS_OF), {"province": "ยะลา"})]:
             self.assertEqual(get_rate(*args, **kwargs)["status"], "invalid", args)

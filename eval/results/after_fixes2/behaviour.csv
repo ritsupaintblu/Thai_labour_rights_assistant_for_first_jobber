@@ -1,0 +1,2 @@
+mode,ask_recall,over_ask,ask_precision,over_asked,correction_filled,correction_right,false_corrections,pairs_over_asked,right_beliefs_corrected,controls_refused
+agent,5/8,1/92,5/6,G30,8/10,7/10,0/90,1/8,0/6,0/14

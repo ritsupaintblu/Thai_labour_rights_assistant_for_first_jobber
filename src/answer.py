@@ -83,6 +83,38 @@ def mentions_number(number, text):
     return re.search(f"{before}{thai_number_word(number)}(?!{after}|จุด)", text) is not None
 
 
+def is_year(number):
+    return number == int(number) and (2400 <= number <= 2700 or 1900 <= number <= 2100)
+
+
+def grounded(number, text):
+    """In the text as digits or Thai words, including halves such as หนึ่งเท่าครึ่ง for 1.5."""
+    if mentions_number(number, text):
+        return True
+    whole, half = divmod(float(number), 1)
+    return half == 0.5 and f"{thai_number_word(whole)}เท่าครึ่ง" in text
+
+
+def one_step(number, values):
+    """A product, quotient or percentage of two values, such as 875 from 17,500 at 5 percent. Sums are left out:
+    with this many values, too many wrong numbers would be the sum of two of them."""
+    def near(result):
+        return abs(result - number) < 0.01 or (number == int(number) and number >= 100 and round(result) == number)
+    return any(near(a * b) or near(a * b / 100) or (b and near(a / b)) for a in values for b in values)
+
+
+def ungrounded_numbers(answer, grounding):
+    """Numbers the answer states that are neither in the data or the question nor one step of arithmetic from
+    them, so the model worked them out itself in several steps. Years are left out, as dates are converted
+    between eras, and so are list markers such as "1."."""
+    text = re.sub(r"(?:^|(?<=\s))\d{1,2}[.)](?=\s)", " ", answer)
+    squeezed = "".join(grounding.split())  # PDF line breaks split the Thai number words
+    stated = [n for n in numbers_in(text) if not is_year(n)]
+    found = [n for n in stated if grounded(n, grounding) or grounded(n, squeezed)]
+    values = sorted(numbers_in(grounding) | set(found))
+    return sorted(n for n in stated if n not in found and not one_step(n, values))
+
+
 def section_id(text):
     """The section number alone: "มาตรา 119 (5)" and "s.119 วรรคสอง" are both section 119, and "47 ทวิ" stays whole."""
     text = text.strip().removeprefix("มาตรา").removeprefix("s.").strip()
@@ -98,8 +130,9 @@ def parse_draft(raw):
         raise ValueError(f"not valid JSON in the required format: {e}") from e
 
 
-def build_answer(raw, evidence):
-    """The checked Answer, or ValueError saying what the model must fix."""
+def build_answer(raw, evidence, grounding=None):
+    """The checked Answer, or ValueError saying what the model must fix. With grounding, every number in the
+    answer must be in it: the model's own arithmetic gave wrong amounts, even next to a correct calculation."""
     draft = parse_draft(raw)
     citations = []
     if draft.clarifying_question:
@@ -139,6 +172,11 @@ def build_answer(raw, evidence):
     if rates and not calculation and not draft.not_found and not draft.clarifying_question \
             and not numbers_in(draft.answer) & {float(v) for v in rates}:
         raise ValueError(f"the answer must state the rate from get_rate: {rates}")
+    if grounding is not None and not draft.not_found and not draft.clarifying_question:
+        extra = ungrounded_numbers(draft.answer, grounding)
+        if extra:
+            raise ValueError(f"the answer states numbers that are not in the data or the question: {[f'{n:g}' for n in extra]}. "
+                             "Do not calculate or add numbers yourself. Use only numbers from the data, the calculation and the question")
     return Answer(answer=draft.answer, citations=citations, calculation=calculation, as_of=AS_OF,
                   confidence=draft.confidence, not_found=draft.not_found,
                   clarifying_question=draft.clarifying_question, correction=draft.correction)
@@ -159,13 +197,20 @@ def answer_from_tools(evidence):
     return build_answer(text, evidence)
 
 
-def finalize(messages, evidence, complete, answer_format=FORMAT):
-    """Ask for the answer and validate it, asking again with the error up to RETRIES times."""
+def finalize(messages, evidence, complete, answer_format=FORMAT, grounding=None):
+    """Ask for the answer and validate it, asking again with the error up to RETRIES times. If its numbers are
+    still not all in the grounding, code states the tool result instead, or the last answer is kept at low confidence."""
     for attempt in range(RETRIES + 1):
         reply = complete(messages).content
         try:
-            return build_answer(reply, evidence)
+            return build_answer(reply, evidence, grounding)
         except ValueError as e:
             messages = [*messages, {"role": "assistant", "content": reply or ""},
                         {"role": "user", "content": f"คำตอบไม่ผ่านการตรวจ: {e}\n{answer_format}"}]
-    return answer_from_tools(evidence) or Answer(answer=GAVE_UP, as_of=AS_OF, confidence="low")
+    fallback = answer_from_tools(evidence)
+    if fallback is None and grounding is not None:
+        try:
+            fallback = build_answer(reply, evidence).model_copy(update={"confidence": "low"})
+        except ValueError:
+            pass
+    return fallback or Answer(answer=GAVE_UP, as_of=AS_OF, confidence="low")

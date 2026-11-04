@@ -19,6 +19,11 @@ SPECIAL_SEVERANCE_CAP = 360
 TENURE_KINDS = {"severance", "special_severance"}
 HOUR_KINDS = {*OVERTIME, "holiday_work"}
 KINDS = {*TENURE_KINDS, *HOUR_KINDS, "sso_contribution", "ewf_contribution", "compensation", "wage_share"}
+# the section each kind follows, so the agent can check that rule against the question before asking for its figures.
+# wage_share follows the section named in its own basis
+KIND_BASIS = {"severance": "LPA2541 s.118", "special_severance": "LPA2541 s.122", "overtime": "LPA2541 s.61",
+              "holiday_work": "LPA2541 s.62", "holiday_overtime": "LPA2541 s.63", "maritime_overtime": "MARITIME2558 s.55",
+              "sso_contribution": "SSA2533 s.46", "ewf_contribution": "LPA2541 s.131", "compensation": "WCA2537 s.18"}
 
 
 def ok(kind, value, unit, formula, legal_basis, note=None):
@@ -62,7 +67,8 @@ def severance(wage, wage_type, years, months, days):
     full_years, rest = tenure(years, months, days)
     pay_days = next((d for y, d in SEVERANCE_DAYS if full_years >= y), 30 if rest >= 120 else 0)
     note = None if pay_days else "ทำงานไม่ครบ 120 วัน จึงไม่มีสิทธิค่าชดเชยตามมาตรา 118"
-    return ok("severance", daily_rate(wage, wage_type) * pay_days, "baht", f"ค่าจ้างวันละ x {pay_days} วัน", "LPA2541 s.118", note)
+    daily = daily_rate(wage, wage_type)
+    return ok("severance", daily * pay_days, "baht", f"ค่าจ้างวันละ {float(daily):g} x {pay_days} วัน", "LPA2541 s.118", note)
 
 
 def special_severance(wage, wage_type, years, months, days):
@@ -71,8 +77,9 @@ def special_severance(wage, wage_type, years, months, days):
         return ok("special_severance", 0, "baht", "ไม่เข้าเงื่อนไข", "LPA2541 s.122", "ต้องทำงานเกิน 6 ปี")
     counted = full_years + (1 if rest > 180 else 0)
     pay_days = min(15 * counted, SPECIAL_SEVERANCE_CAP)
-    return ok("special_severance", daily_rate(wage, wage_type) * pay_days, "baht",
-              f"ค่าจ้างวันละ x min(15 x {counted} ปี, {SPECIAL_SEVERANCE_CAP}) วัน", "LPA2541 s.122")
+    daily = daily_rate(wage, wage_type)
+    return ok("special_severance", daily * pay_days, "baht",
+              f"ค่าจ้างวันละ {float(daily):g} x min(15 x {counted} ปี, {SPECIAL_SEVERANCE_CAP}) = {pay_days} วัน", "LPA2541 s.122")
 
 
 def rate_percent(name, as_of):
@@ -115,8 +122,9 @@ def wage_share(wage, wage_type, percent, days, basis):
     percent = exact(percent)
     if percent != 100 and not mentions_number(percent, text):
         return invalid(f"{law} s.{section} does not state ร้อยละ {float(percent):g}")
-    return ok("wage_share", daily_rate(wage, wage_type) * percent / 100 * exact(days), "baht",
-              f"ค่าจ้างวันละ x ร้อยละ {float(percent):g} x {days} วัน", f"{law} s.{section}")
+    daily = daily_rate(wage, wage_type)
+    return ok("wage_share", daily * percent / 100 * exact(days), "baht",
+              f"ค่าจ้างวันละ {float(daily):g} x ร้อยละ {float(percent):g} x {days} วัน", f"{law} s.{section}")
 
 
 def missing_inputs(kind, wage, years, months, days, hours, percent, basis):

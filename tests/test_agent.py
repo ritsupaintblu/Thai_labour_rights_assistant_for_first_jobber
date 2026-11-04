@@ -10,10 +10,12 @@ from fastapi.testclient import TestClient
 from eval.run_answers import behaviour_row, citation_hit, correction_ok, number_ok, source_titles, supporting_ok
 
 from src.agent.loop import WRITE, Agent, focus
-from src.agent.steps import ASK, BELIEF, BELIEF_REPORTED, CHECK, REWRITE, applies, check_belief, check_results, needs_input, question_date
+from src.agent.steps import (BELIEF, BELIEF_REPORTED, CHECK, DEDUCTION_TOPICS, DEPENDS, REWRITE, applies,
+                             asks_own_deduction, check_belief, check_depends, check_results, question_date)
 from src.agent.tools.calculate import calculate
+from src.agent.tools.get_rate import get_rate, place_in
 from src.agent.tools.search_law import SearchLaw, section_rows
-from src.answer import FORMAT, GAVE_UP, Evidence, build_answer, mentions_number, section_id
+from src.answer import FORMAT, GAVE_UP, Evidence, build_answer, mentions_number, section_id, ungrounded_numbers
 from src.retrieval.corpus import Hit
 from src.retrieval.rerank import search_both
 
@@ -250,7 +252,7 @@ class SearchFloor(unittest.TestCase):
         self.assertEqual(search_law(min_score=0.5)("q")["results"][0]["section"], "41")
 
 
-def fake_model(tool_replies=(), final=None, ask=None, check=None, belief=None):
+def fake_model(tool_replies=(), final=None, depends=None, check=None, belief=None):
     """A model that answers each step by its prompt. Records the calls, so a test can see what each step was shown."""
     tool_replies, final = list(tool_replies), list(final or [draft()])
     calls = []
@@ -260,8 +262,8 @@ def fake_model(tool_replies=(), final=None, ask=None, check=None, belief=None):
         system = messages[0]["content"]
         if system == REWRITE:
             return text("นายจ้างให้ลูกจ้างซึ่งเป็นหญิงมีครรภ์ลา")
-        if system == ASK:
-            return text(json.dumps(ask or {"needs_input": False, "question": None}))
+        if system == DEPENDS:
+            return text(json.dumps(depends or {"depends": False, "fact": None, "question": None, "cases": []}))
         if system == CHECK:
             return text(json.dumps(check or {"covers_topic": True, "answers": True, "quote": CHUNK["text"]}))
         if system in (BELIEF, BELIEF_REPORTED):
@@ -274,9 +276,9 @@ def fake_model(tool_replies=(), final=None, ask=None, check=None, belief=None):
     return complete
 
 
-def run_agent(question="ลาคลอดได้กี่วัน", max_steps=5, **model):
+def run_agent(question="ลาคลอดได้กี่วัน", max_steps=5, hits=None, **model):
     complete = fake_model(**model)
-    both = lambda question, rewrite, k=5: [Hit(CHUNK, 0.9)]
+    both = lambda question, rewrite, k=5: hits or [Hit(CHUNK, 0.9)]
     answer, trace = Agent(search_law(), both, complete, max_steps).run(question)
     return answer, trace, complete.calls
 
@@ -317,22 +319,136 @@ class AgentLoop(unittest.TestCase):
         self.assertEqual(answer.calculation.value, 400000)
         self.assertEqual(answer.citations[0].section, "118")
 
-    def test_asks_back_when_the_law_covers_the_topic(self):
-        answer, trace, calls = run_agent(ask={"needs_input": True, "question": "ทำงานมานานเท่าไร"},
-                                         check={"covers_topic": True, "answers": False, "quote": ""})
-        self.assertEqual(answer.clarifying_question, "ทำงานมานานเท่าไร")
+    SPOUSE = {**CHUNK, "section": "41/1", "text": "ให้ลูกจ้างมีสิทธิลาเพื่อช่วยเหลือคู่สมรสซึ่งคลอดบุตรได้ไม่เกิน 15 วัน"}
+    TWO = [Hit(CHUNK, 0.9), Hit(SPOUSE, 0.8)]
+    DEPENDS_ON = {"depends": True, "fact": "ผู้ถามเป็นผู้คลอดหรือคู่สมรส", "question": "ผู้ถามเป็นผู้คลอดเองหรือเป็นคู่สมรส",
+                  "cases": ["ลาคลอดได้ไม่เกิน 120 วัน", "ลาเพื่อช่วยเหลือคู่สมรสซึ่งคลอดบุตร"]}
+
+    def each_answers(self, depends):
+        """A model whose check finds each section answers the question alone."""
+        complete = fake_model(depends=depends)
+
+        def model(messages, tools=None):
+            if messages[0]["content"] == CHECK:
+                own = next(c["text"] for c in (CHUNK, self.SPOUSE) if c["text"] in messages[1]["content"])
+                return text(json.dumps({"covers_topic": True, "answers": True, "quote": own}))
+            return complete(messages, tools)
+        return Agent(search_law(), lambda question, rewrite, k=5: self.TWO, model)
+
+    def test_asks_back_when_two_sections_each_answer_differently(self):
+        answer, _ = self.each_answers(self.DEPENDS_ON).run("ลาคลอดได้กี่วัน")
+        self.assertEqual(answer.clarifying_question, "ผู้ถามเป็นผู้คลอดเองหรือเป็นคู่สมรส")
         self.assertFalse(answer.not_found)
-        self.assertFalse([m for m, tools in calls if tools])  # no point choosing tools without the details
+
+    def test_does_not_ask_back_when_the_differing_sections_are_in_two_acts(self):
+        self.SPOUSE["law"] = "HOMEWORK2553"
+        try:
+            answer, _ = self.each_answers(self.DEPENDS_ON).run("ลาคลอดได้กี่วัน")
+        finally:
+            self.SPOUSE["law"] = "LPA2541"
+        self.assertIsNone(answer.clarifying_question)
+
+    def test_does_not_ask_back_when_only_one_section_answers(self):
+        answer, _, _ = run_agent(hits=self.TWO, depends=self.DEPENDS_ON)  # the check quotes section 41 for both
+        self.assertIsNone(answer.clarifying_question)
+
+    def test_does_not_ask_back_without_quotes_from_two_sections(self):
+        one_section = {**self.DEPENDS_ON, "cases": ["ลาคลอดได้ไม่เกิน", "ไม่เกิน 120 วัน"]}
+        not_in_results = {**self.DEPENDS_ON, "cases": ["ลาคลอดได้ไม่เกิน 120 วัน", "ข้อความที่ไม่มีในผลค้นเลย"]}
+        for depends in (one_section, not_in_results):
+            answer, _ = self.each_answers(depends).run("ลาคลอดได้กี่วัน")
+            self.assertIsNone(answer.clarifying_question)
+
+    def test_does_not_ask_back_about_a_section_that_does_not_cover_the_question(self):
+        complete = fake_model(depends=self.DEPENDS_ON)
+
+        def model(messages, tools=None):
+            if messages[0]["content"] == CHECK and "41/1" in messages[1]["content"] and "41]" not in messages[1]["content"]:
+                return text(json.dumps({"covers_topic": False, "answers": False, "quote": ""}))
+            return complete(messages, tools)
+        answer, _ = Agent(search_law(), lambda question, rewrite, k=5: self.TWO, model).run("ลาคลอดได้กี่วัน")
+        self.assertIsNone(answer.clarifying_question)
 
     def test_refuses_instead_of_asking_when_the_law_does_not_cover_it(self):
-        answer, _, _ = run_agent(ask={"needs_input": True, "question": "ถามอะไร"},
-                                 check={"covers_topic": False, "answers": False, "quote": ""})
+        answer, _, _ = run_agent(hits=self.TWO, depends=self.DEPENDS_ON, check={"covers_topic": False, "answers": False, "quote": ""})
         self.assertTrue(answer.not_found)
         self.assertIsNone(answer.clarifying_question)
+
+    def test_a_calculated_amount_is_not_held_back_to_ask(self):
+        answer, _, _ = run_agent(hits=self.TWO, depends=self.DEPENDS_ON,
+                                 tool_replies=[tool_call("calculate", {"kind": "severance", "wage": 30000, "years": 25})],
+                                 final=[draft(answer="ได้ 400,000 บาท", citations=[])])
+        self.assertIsNone(answer.clarifying_question)
+        self.assertEqual(answer.calculation.value, 400000)
 
     def test_asks_for_what_a_rate_needs(self):
         answer, _, _ = run_agent(tool_replies=[tool_call("get_rate", {"name": "min_wage_daily"})])
         self.assertIn("จังหวัด", answer.clarifying_question)
+
+    def test_does_not_ask_where_the_user_works_when_the_rule_does_not_cover_it(self):
+        complete = fake_model()
+
+        def model(messages, tools=None):  # another country's minimum wage: the Thai rate does not cover it
+            if messages[0]["content"] == CHECK and "(min_wage_daily)" in messages[1]["content"]:
+                return text(json.dumps({"covers_topic": False, "answers": False, "quote": ""}))
+            return complete(messages, tools)
+        agent = Agent(search_law(), lambda question, rewrite, k=5: [Hit(CHUNK, 0.9)], model)
+        answer, _ = agent.run("ค่าแรงขั้นต่ำของสหรัฐอเมริกาชั่วโมงละเท่าไร")
+        self.assertIsNone(answer.clarifying_question)
+
+    def test_code_asks_for_the_wage_a_deduction_needs(self):
+        answer, trace, _ = run_agent(question="ประกันสังคมหักเดือนละเท่าไร",
+                                     tool_replies=[tool_call("get_rate", {"name": "sso_employee_rate_percent"})])
+        self.assertEqual(answer.clarifying_question, "ขอทราบค่าจ้าง")
+        self.assertTrue([t for t in trace if t["arguments"].startswith("by code")])
+
+    def test_code_looks_up_a_rate_the_question_names(self):
+        answer, trace, _ = run_agent(question="ค่าแรงขั้นต่ำวันละเท่าไร")
+        self.assertIn("จังหวัด", answer.clarifying_question)
+        _, trace, _ = run_agent(question="ทำงานที่นนทบุรี ค่าแรงขั้นต่ำวันละเท่าไร", final=[draft(answer="วันละ 372 บาท", citations=[])])
+        self.assertEqual(next(t for t in trace if t["tool"] == "get_rate")["status"], "found")
+
+    def test_the_place_in_the_question_overrides_the_model(self):
+        answer, _, _ = run_agent(question="ทำงานร้านกาแฟที่เกาะสมุย ค่าแรงขั้นต่ำวันละเท่าไร",
+                                 tool_replies=[tool_call("get_rate", {"name": "min_wage_daily", "province": "สุราษฎร์ธานี"})],
+                                 final=[draft(answer="วันละ 400 บาท", citations=[])])
+        self.assertIsNone(answer.clarifying_question)
+        self.assertEqual(answer.citations[-1].section, "ข้อ 2 (3)")
+
+    def test_figures_are_not_asked_for_a_rule_that_does_not_cover_the_question(self):
+        complete = fake_model(tool_replies=[tool_call("calculate", {"kind": "severance", "wage": 0})])
+
+        def model(messages, tools=None):  # the section answers, and the severance rule is unrelated
+            if messages[0]["content"] == CHECK and "มาตรา 118]" in messages[1]["content"]:
+                return text(json.dumps({"covers_topic": False, "answers": False, "quote": ""}))
+            return complete(messages, tools)
+        answer, _ = Agent(search_law(), lambda question, rewrite, k=5: [Hit(CHUNK, 0.9)], model).run("ลาคลอดได้ค่าจ้างเท่าไร")
+        self.assertIsNone(answer.clarifying_question)
+
+    def test_calculates_from_the_section_that_answers_when_no_kind_fits(self):
+        leave = {**CHUNK, "section": "58", "text": "ให้นายจ้างจ่ายค่าจ้างให้แก่ลูกจ้างในวันลาเพื่อรับราชการทหาร"
+                                                  "เท่ากับค่าจ้างในวันทำงานตลอดระยะเวลาที่ลา แต่ปีหนึ่งต้องไม่เกินหกสิบวัน"}
+        share = {"kind": "wage_share", "wage": 15000, "percent": 100, "days": 10, "basis": "LPA2541 s.58"}
+        complete = fake_model(tool_replies=[text("พร้อมสรุป"), tool_call("calculate", share)],
+                              check={"covers_topic": True, "answers": True, "quote": leave["text"]},
+                              final=[draft(answer="ได้ 5,000 บาท", citations=[])])
+        agent = Agent(search_law(), lambda question, rewrite, k=5: [Hit(leave, 0.9)], complete)
+        answer, trace = agent.run("เงินเดือน 15,000 บาท ลาไปฝึกทหาร 10 วัน ได้ค่าจ้างเท่าไร")
+        self.assertEqual(answer.calculation.value, 5000)
+        self.assertEqual(next(t for t in trace if t["tool"] == "calculate_from")["status"], "ok")
+
+    def test_a_calculation_from_another_rule_is_not_kept(self):
+        leave = {**CHUNK, "section": "58", "text": "ให้นายจ้างจ่ายค่าจ้างให้แก่ลูกจ้างในวันลาเพื่อรับราชการทหาร"}
+        complete = fake_model(tool_replies=[text("พร้อมสรุป"), tool_call("calculate", {"kind": "compensation", "wage": 15000})],
+                              check={"covers_topic": True, "answers": True, "quote": leave["text"]})
+        agent = Agent(search_law(), lambda question, rewrite, k=5: [Hit(leave, 0.9)], complete)
+        answer, trace = agent.run("เงินเดือน 15,000 บาท ลาไปฝึกทหาร 10 วัน ได้ค่าจ้างเท่าไร")
+        self.assertIsNone(answer.calculation)
+        self.assertEqual(next(t for t in trace if t["tool"] == "calculate_from")["status"], "follows another rule")
+
+    def test_an_answer_with_numbers_it_worked_out_itself_is_asked_again(self):
+        answer, _, _ = run_agent(final=[draft(answer="ลาคลอดได้ 120 วัน หรือ 4 เดือน รวม 60,000 บาท"), draft()])
+        self.assertEqual(answer.answer, "ลาคลอดได้ 120 วัน")
 
     def test_a_question_asking_for_days_does_not_wait_for_a_wage(self):
         answer, _, _ = run_agent(question="ทำงานมา 22 ปีถูกเลิกจ้าง ได้ค่าชดเชยกี่วัน",
@@ -349,7 +465,7 @@ class AgentLoop(unittest.TestCase):
                                     tool_replies=[tool_call("calculate", {"kind": "sso_contribution", "wage": 25000})],
                                     final=[draft(answer="ได้ 1,000 บาท", citations=[])])
         self.assertEqual(next(t for t in trace if t["tool"] == "calculate")["status"], "ok")
-        self.assertIn('"value": 1000', calls[-1][0][1]["content"])
+        self.assertIn("[ผลคำนวณ] 1,000 บาทต่อเดือน", calls[-1][0][1]["content"])
 
     def test_a_calculation_from_an_unrelated_rule_is_dropped(self):
         complete = fake_model(tool_replies=[tool_call("calculate", {"kind": "compensation", "wage": 18000})])
@@ -467,9 +583,42 @@ class AgentLoop(unittest.TestCase):
 
     def test_bad_step_output_falls_back_safely(self):
         complete = lambda messages, tools=None: text("not json")
-        self.assertFalse(needs_input("q", complete).needs_input)
+        self.assertFalse(check_depends("q", "c", complete).depends)
         self.assertFalse(check_results("q", "c", complete).covers_topic)
         self.assertFalse(check_belief("ใช่ไหม", "c", complete).belief_is_wrong)
+
+
+class Deductions(unittest.TestCase):
+    def test_a_deduction_from_the_askers_own_pay(self):
+        topic = DEDUCTION_TOPICS["sso_contribution"]
+        self.assertTrue(asks_own_deduction("ปี 2572 ประกันสังคมจะหักเงินเดือนเดือนละเท่าไร", topic))
+        self.assertFalse(asks_own_deduction("เงินเดือน 25,000 บาท ประกันสังคมหักเดือนละเท่าไร", topic))
+        self.assertFalse(asks_own_deduction("เงินสมทบประกันสังคมที่ลูกจ้างถูกหักสูงสุดเดือนละเท่าไร", topic))
+        self.assertFalse(asks_own_deduction("ประกันสังคมหักร้อยละเท่าไร", topic))
+
+
+class Rates(unittest.TestCase):
+    def test_a_place_in_the_question_is_found_with_its_province(self):
+        self.assertEqual(place_in("ทำงานร้านกาแฟที่เกาะสมุย"), ("สุราษฎร์ธานี", "เกาะสมุย"))
+        self.assertEqual(place_in("อยู่ กทม."), ("กรุงเทพมหานคร", None))
+        self.assertEqual(place_in("ทำงานโรงแรม"), (None, None))
+
+    def test_an_unknown_province_is_asked_for(self):
+        result = get_rate("min_wage_daily", "2026-11-01", "ทุกจังหวัด")
+        self.assertEqual((result["status"], result["missing"]), ("needs_input", ["province"]))
+
+
+class Grounding(unittest.TestCase):
+    DATA = "ให้จ่ายไม่น้อยกว่าหนึ่งเท่าครึ่ง ร้อยละเจ็ดสิบห้าของค่าจ้าง [LPA2541 มาตรา 75] ค่าจ้างวันละ 400 บาท 10 วัน"
+
+    def test_numbers_from_the_data_or_the_question_are_grounded(self):
+        self.assertEqual(ungrounded_numbers("1. ได้ 1.5 เท่า ร้อยละ 75 ตามมาตรา 75 วันละ 400 บาท ปี 2568", self.DATA), [])
+
+    def test_one_step_of_arithmetic_from_the_data_is_grounded(self):
+        self.assertEqual(ungrounded_numbers("หักสูงสุดเดือนละ 875 บาท", "เพดาน 17500 บาทต่อเดือน อัตรา 5 เปอร์เซ็นต์"), [])
+
+    def test_a_number_worked_out_by_the_model_is_not(self):
+        self.assertEqual(ungrounded_numbers("ได้ 3,500 บาท (400 x 10 x 0.75)", self.DATA), [0.75, 3500])
 
 
 class QuestionDate(unittest.TestCase):
