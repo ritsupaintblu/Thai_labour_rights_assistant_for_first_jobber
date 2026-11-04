@@ -64,6 +64,8 @@ The system was tuned on these 100 questions, so it was also checked on five lock
 
 ## Getting started
 
+Developed on Python 3.13.2; `requirements.txt` was installed with that version.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -74,12 +76,19 @@ python scripts/build_chunks.py     # → data/processed/chunks.jsonl
 python scripts/build_index.py      # → data/index/ (downloads a 4.3 GB model)
 ```
 
-Set `OPENAI_API_KEY` and `OPENAI_BASE_URL` in the environment or a `.env` file, then:
+The model is `gemma-4-E4B-it`, called through any OpenAI-compatible server. Copy `.env.example` to `.env` and fill in `OPENAI_API_KEY` and `OPENAI_BASE_URL` (or set them in the environment), then:
 
 ```bash
 uvicorn src.api.main:app
 curl -X POST http://localhost:8000/ask -H "Content-Type: application/json" \
   -d '{"question": "ลาป่วยได้กี่วันโดยได้รับค่าจ้าง"}'
+```
+
+On Windows PowerShell, use this instead of `curl`, or open http://localhost:8000/docs and try `/ask` from the browser:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/ask -ContentType "application/json; charset=utf-8" `
+  -Body '{"question": "ลาป่วยได้กี่วันโดยได้รับค่าจ้าง"}'
 ```
 
 A new question takes about 20–40 seconds on CPU, mostly reranking.
