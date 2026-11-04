@@ -38,7 +38,7 @@ question → FastAPI POST /ask → agent (gemma-4-E4B-it)
 
 ## Corpus
 
-35 official documents in `data/raw/`, listed in `data/manifest.csv` with URL, dates, status and SHA-256: the Labour Protection Act and Amendments 2–9, the Social Security Act, the Workmen's Compensation Act, minimum wage, the Employee Welfare Fund, and related laws. `python scripts/fetch_corpus.py` verifies the hashes and downloads missing files (several government sites block scripts, so use the archived files).
+37 official files in `data/raw/`, listed in `data/manifest.csv` with URL, dates, status and SHA-256: the Labour Protection Act and Amendments 2–9, the Social Security Act, the Workmen's Compensation Act, minimum wage, the Employee Welfare Fund, and related laws. `python scripts/fetch_corpus.py` verifies the hashes and downloads missing files (several government sites block scripts, so use the archived files).
 
 ## Results
 
@@ -95,6 +95,7 @@ scripts/   fetch_corpus, build_chunks, build_index
 src/       retrieval/, agent/ (loop and tools), api/, schemas.py, rag.py, llm.py
 eval/      questions, held-out sets, runners, results/
 tests/
+read/      write-up of each stage: corpus, build_chunks, rates, retrieval, agent, evaluation, heldout
 ```
 
 ## Limitations
