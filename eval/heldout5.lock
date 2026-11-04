@@ -1,0 +1,7 @@
+{
+ "file": "eval/heldout5.jsonl",
+ "sha256": "b24e74b642ab392ae347197c600a44c9ee9b824acd8a255887d2685746f7bf42",
+ "questions": 44,
+ "locked": "2026-11-04",
+ "note": "Written from the statutes before the fixes from the manual review: calculation explanations, rate and date wording, asking back with the rule, complete answers, and the wording of refusals. Do not edit; do not tune the system on its results."
+}
