@@ -488,7 +488,7 @@ The tuned set was run once with the changed agent: `python eval/run_answers.py a
   - While the old agent ran, its scores for `P11` and `P12` appeared in the log before the changed agent had run.
   - The labels are one person's judgement.
   - With 8 clarification questions, a 95% interval for 3/8 is 14-69%.
-- **The code is not committed yet.** All 6 runs on the new set used one version of the code. Its diff from `f0f10c3` has a SHA-256 starting `719e93d3c8515f30`.
+- **The measured code is commit `12fd6f3`.** All 6 runs on the new set used one version of the code. Its diff from `f0f10c3` has a SHA-256 starting `719e93d3c8515f30`, the same as that commit's.
 - **These results were not used to change the system.** The next fix would ask for figures when the section that answers needs them and the question has none. It needs a new locked set to be measured.
 
 ### Asking for the figures a formula needs, and a fourth held-out check
@@ -545,7 +545,7 @@ The code from the previous section ran on it 3 times, from a separate checkout. 
   - I wrote the 48 questions knowing the planned change. `Q15` to `Q26` were written to test for over-asking.
   - While the old agent ran, its scores for `Q26` and `Q27` appeared in a log. The changed code had already been frozen.
   - The labels are one person's judgement.
-- **The code is not committed yet.** All 3 changed runs used one version. Its diff from `f0f10c3` has a SHA-256 starting `2ba927151803745a`.
+- **The measured code is commit `36d5e65`.** All 3 changed runs used one version. Its diff from `f0f10c3` has a SHA-256 starting `2ba927151803745a`, the same as that commit's.
 - **These results were not used to change the system.**
 
 ## Project structure
