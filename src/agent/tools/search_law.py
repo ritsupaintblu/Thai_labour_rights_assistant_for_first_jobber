@@ -1,6 +1,7 @@
 """search_law: the in-force sections for a query, or not_found when nothing clears the min_score floor."""
 
 import csv
+import re
 from functools import lru_cache
 
 from src.retrieval.corpus import ROOT, load_chunks
@@ -37,6 +38,50 @@ def section_texts():
         key = (chunk["law"], chunk["section"])
         texts[key] = texts.get(key, "") + "".join(chunk["text"].split())
     return texts
+
+
+@lru_cache(maxsize=1)
+def section_full_texts():
+    """Every in-force section's text as the chunks print it, by (law, section)."""
+    texts = {}
+    for chunk in load_chunks():
+        key = (chunk["law"], chunk["section"])
+        texts[key] = f"{texts[key]}\n{chunk['text']}" if key in texts else chunk["text"]
+    return texts
+
+
+def section_result(key):
+    """A section as a search result, for one that code adds rather than the search finding it."""
+    row = section_rows().get(key)
+    return {**row, "text": section_full_texts()[key], "score": 0.0} if row else None
+
+
+SECTION_REF = re.compile(r"มาตรา(\d+(?:/\d+)?)(ทวิ|ตรี|จัตวา|เบญจ)?(?![\d/])")
+
+
+@lru_cache(maxsize=1)
+def penalties():
+    """(law, section) -> the sections of the same Act that set the penalty for breaking it. A penalty section names
+    the duty only by number, such as "ฝ่าฝืนมาตรา 8", so a search for the duty's words never finds it."""
+    links = {}
+    for (law, section), text in section_texts().items():
+        if "ต้องระวางโทษ" not in text:
+            continue
+        # the offence comes before each "ต้องระวางโทษ"; sections named after the last one are exceptions, such as
+        # "เว้นแต่เป็นคนต่างด้าวตามมาตรา 63", unless the duties are listed after it, as in "บทบัญญัติดังต่อไปนี้"
+        *offences, rest = text.split("ต้องระวางโทษ")
+        described = "".join(offences) + (rest if "ดังต่อไปนี้" in offences[-1] else "")
+        for number, suffix in SECTION_REF.findall(described):
+            duty = f"{number} {suffix}" if suffix else number
+            if duty != section and (law, section) not in links.get((law, duty), []):
+                links.setdefault((law, duty), []).append((law, section))
+    return links
+
+
+def repealed_by(act, year):
+    """The sections that repeal the Act named, such as มาตรา 3 "ให้ยกเลิก (1) พระราชบัญญัติ...พ.ศ. 2551"."""
+    target = f"{''.join(act.split())}พ.ศ.{year}"
+    return [key for key, text in section_texts().items() if "ให้ยกเลิก" in text and target in text]
 
 
 class SearchLaw:

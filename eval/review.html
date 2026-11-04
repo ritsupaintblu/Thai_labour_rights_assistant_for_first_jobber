@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ตรวจคำตอบ</title>
+<style>
+:root {
+  --bg: #f6f6f3; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
+  --accent: #2f5d8a; --soft: #eef2f6;
+  --ok: #2e7d4f; --ok-bg: #e5f3ea; --part: #a06a00; --part-bg: #fbf0d9;
+  --bad: #b3362f; --bad-bg: #f9e3e1; --unsure: #6a5a9c; --unsure-bg: #ece8f6;
+  --mark: #fff1a8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ebeae6; --muted: #9b9a94; --line: #34332f;
+    --accent: #8ab4e0; --soft: #252b31;
+    --ok: #6fcf97; --ok-bg: #1d3326; --part: #e5b453; --part-bg: #3a2f17;
+    --bad: #f08a80; --bad-bg: #3c2120; --unsure: #b5a6e8; --unsure-bg: #2a2540;
+    --mark: #5a4e12;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.65 "Sarabun", "Leelawadee UI", "Noto Sans Thai", Tahoma, system-ui, sans-serif; }
+button, select, textarea { font: inherit; color: inherit; }
+header { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+header h1 { font-size: 17px; margin: 0; }
+.run { color: var(--muted); font-size: 13px; }
+.bar { flex: 1 1 160px; min-width: 120px; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; display: flex; }
+.bar span { height: 100%; }
+.count { font-size: 14px; color: var(--muted); white-space: nowrap; }
+header select { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.layout { display: grid; grid-template-columns: 210px 1fr; gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+nav { position: sticky; top: 70px; align-self: start; max-height: calc(100vh - 90px); overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+nav button { display: flex; width: 100%; justify-content: space-between; gap: 6px; border: 0; background: none;
+  padding: 3px 8px; border-radius: 6px; cursor: pointer; font-size: 14px; text-align: left; }
+nav button:hover { background: var(--soft); }
+nav button.current { background: var(--accent); color: var(--panel); }
+nav .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 7px; flex: none; border: 1px solid var(--line); }
+main { min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
+.qhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.qid { font-weight: 700; font-size: 20px; }
+.tag { font-size: 13px; padding: 1px 8px; border-radius: 999px; background: var(--soft); color: var(--accent); }
+.question { font-size: 20px; margin: 4px 0 0; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+h2 { font-size: 14px; letter-spacing: .02em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+h3 { font-size: 14px; color: var(--muted); margin: 14px 0 4px; font-weight: 600; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.flag { display: inline-block; font-size: 13px; padding: 1px 8px; border-radius: 6px; margin: 0 6px 6px 0; }
+.flag.warn { background: var(--part-bg); color: var(--part); }
+.flag.info { background: var(--soft); color: var(--accent); }
+.box { border-left: 3px solid var(--accent); padding: 4px 10px; background: var(--soft); border-radius: 0 6px 6px 0; }
+ul.plain { margin: 0; padding-left: 18px; }
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+details { border-top: 1px solid var(--line); padding: 8px 0 2px; }
+details:first-of-type { border-top: 0; }
+summary { cursor: pointer; font-weight: 600; }
+summary .tag { margin-left: 6px; font-weight: 400; }
+.law { font-size: 15px; margin: 6px 0 8px; max-height: 360px; overflow: auto; }
+mark { background: var(--mark); color: inherit; border-radius: 2px; }
+.verdict { position: sticky; bottom: 0; z-index: 1; }
+.btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+.btns button { border: 2px solid var(--line); background: var(--panel); border-radius: 8px; padding: 10px 6px;
+  cursor: pointer; font-weight: 600; }
+.btns button kbd { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.btns .correct.on { border-color: var(--ok); background: var(--ok-bg); color: var(--ok); }
+.btns .partly.on { border-color: var(--part); background: var(--part-bg); color: var(--part); }
+.btns .wrong.on { border-color: var(--bad); background: var(--bad-bg); color: var(--bad); }
+.btns .unsure.on { border-color: var(--unsure); background: var(--unsure-bg); color: var(--unsure); }
+textarea { width: 100%; min-height: 56px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); resize: vertical; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 14px; color: var(--muted); }
+.row button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+.auto { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.auto span { font-size: 13px; padding: 2px 8px; border-radius: 6px; background: var(--soft); }
+.auto .t { background: var(--ok-bg); color: var(--ok); }
+.auto .f { background: var(--bad-bg); color: var(--bad); }
+.saved { color: var(--ok); }
+.err { color: var(--bad); }
+.help { font-size: 13px; color: var(--muted); }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; padding: 12px 16px; }
+  nav { position: static; max-height: 180px; display: flex; flex-wrap: wrap; gap: 4px; }
+  nav button { width: auto; }
+  .cols { grid-template-columns: 1fr; }
+  .btns { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>ตรวจคำตอบ</h1>
+  <span class="run" id="run"></span>
+  <div class="bar" id="bar" title="ความคืบหน้า"></div>
+  <span class="count" id="count"></span>
+  <select id="ftype" aria-label="ประเภท"><option value="">ทุกประเภท</option></select>
+  <select id="fstate" aria-label="สถานะ">
+    <option value="">ทุกข้อ</option><option value="todo">ยังไม่ตรวจ</option><option value="done">ตรวจแล้ว</option>
+    <option value="correct">ถูก</option><option value="partly">ถูกบางส่วน</option><option value="wrong">ผิด</option><option value="unsure">ไม่แน่ใจ</option>
+  </select>
+</header>
+<div class="layout">
+  <nav id="list" aria-label="รายการคำถาม"></nav>
+  <main id="main"><div class="card">กำลังโหลด…</div></main>
+</div>
+<script>
+const VERDICTS = [
+  ["correct", "ถูก", "1"], ["partly", "ถูกบางส่วน", "2"], ["wrong", "ผิด", "3"], ["unsure", "ไม่แน่ใจ", "4"],
+];
+const COLORS = { correct: "var(--ok)", partly: "var(--part)", wrong: "var(--bad)", unsure: "var(--unsure)" };
+const TYPES = { general: "ทั่วไป", trap: "กับดัก", calculation: "คำนวณ", correction: "แก้ความเข้าใจ",
+  clarification: "ถามกลับ", out_of_scope: "นอกขอบเขต" };
+const EXPECT = { answer: "ตอบ", refuse: "ปฏิเสธ (ไม่มีในกฎหมาย)", ask_clarification: "ถามข้อมูลเพิ่ม",
+  correct_premise: "แก้ความเข้าใจผิด" };
+const AUTO_NAMES = { behaviour_ok: "พฤติกรรม", number_ok: "ตัวเลข", supporting_ok: "ตัวเลขประกอบ",
+  citation_hit: "อ้างมาตรา", judge_correct: "LLM judge" };
+
+let items = [], labels = {}, view = [], cur = 0, autoNext = true;
+try { autoNext = localStorage.getItem("review.autoNext") !== "0"; } catch (e) {}
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function numberForms(n) {
+  const forms = new Set([String(n)]);
+  if (typeof n === "number") {
+    forms.add(n.toLocaleString("en-US"));
+    if (Number.isInteger(n)) forms.add(n.toLocaleString("en-US", { minimumFractionDigits: 2 }));
+  }
+  return [...forms].filter((f) => f.length);
+}
+
+function highlight(text, numbers) {
+  let html = esc(text);
+  const forms = (numbers || []).flatMap(numberForms).sort((a, b) => b.length - a.length);
+  if (!forms.length) return html;
+  const pattern = new RegExp(`(?<![\\d,.])(${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![\\d,]|\\.\\d)`, "g");
+  return html.replace(pattern, "<mark>$1</mark>");
+}
+
+function applyFilter() {
+  const t = $("ftype").value, s = $("fstate").value;
+  const keep = items.map((it, i) => i).filter((i) => {
+    const it = items[i], l = labels[it.id];
+    if (t && it.type !== t) return false;
+    if (s === "todo") return !l;
+    if (s === "done") return !!l;
+    if (s) return l && l.verdict === s;
+    return true;
+  });
+  const currentId = view.length ? items[view[cur]]?.id : null;
+  view = keep;
+  const at = view.findIndex((i) => items[i].id === currentId);
+  cur = at >= 0 ? at : 0;
+  render();
+}
+
+function renderHeader() {
+  const done = Object.keys(labels).length;
+  $("count").textContent = `ตรวจแล้ว ${done}/${items.length}`;
+  const counts = {};
+  Object.values(labels).forEach((l) => (counts[l.verdict] = (counts[l.verdict] || 0) + 1));
+  $("bar").innerHTML = VERDICTS.map(([v]) =>
+    `<span style="width:${(100 * (counts[v] || 0)) / items.length}%;background:${COLORS[v]}"></span>`).join("");
+}
+
+function renderList() {
+  $("list").innerHTML = view.map((i, k) => {
+    const it = items[i], l = labels[it.id];
+    const bg = l ? COLORS[l.verdict] : "transparent";
+    return `<button class="${k === cur ? "current" : ""}" data-k="${k}"><span>${esc(it.id)}</span><span class="dot" style="background:${bg}"></span></button>`;
+  }).join("") || `<span class="help">ไม่มีข้อที่ตรงกับตัวกรอง</span>`;
+  $("list").querySelectorAll("button").forEach((b) => (b.onclick = () => go(+b.dataset.k)));
+  $("list").querySelector(".current")?.scrollIntoView({ block: "nearest" });
+}
+
+function citationList(cites) {
+  if (!cites.length) return `<span class="help">ไม่มี</span>`;
+  return `<ul class="plain">${cites.map((c) => `<li>${c.law ? `${esc(c.law)} ม.${esc(c.section)}` : esc(c.source)}
+    ${c.effective_date ? `<span class="help">· มีผล ${esc(c.effective_date)}</span>` : ""}</li>`).join("")}</ul>`;
+}
+
+function renderMain() {
+  if (!view.length) { $("main").innerHTML = `<div class="card">ไม่มีข้อที่ตรงกับตัวกรอง</div>`; return; }
+  const it = items[view[cur]], a = it.answer, l = labels[it.id];
+  const nums = it.expected_numbers || [];
+  const flags = [];
+  if (a.not_found) flags.push(`<span class="flag warn">ปฏิเสธ: ไม่พบในกฎหมาย</span>`);
+  if (a.clarifying_question) flags.push(`<span class="flag info">ถามกลับ</span>`);
+  if (a.correction) flags.push(`<span class="flag info">แก้ความเข้าใจ</span>`);
+  if (a.confidence) flags.push(`<span class="flag info">มั่นใจ: ${esc(a.confidence)}</span>`);
+
+  const calc = a.calculation ? `<h3>การคำนวณ</h3><div class="box mono">${esc(a.calculation.kind)}: ${esc(a.calculation.formula)}
+    = <b>${highlight(a.calculation.value, nums)}</b> ${esc(a.calculation.unit)} <span class="help">(${esc(a.calculation.legal_basis)})</span></div>` : "";
+
+  const sections = it.sections.map((s) => `<details ${s.gold && s.cited ? "" : ""}>
+      <summary>${esc(s.law)} ม.${esc(s.section)}
+        ${s.gold ? `<span class="tag">เฉลย</span>` : ""}${s.cited ? `<span class="tag">โมเดลอ้าง</span>` : ""}</summary>
+      <div class="law text">${s.text ? highlight(s.text, nums) : `<span class="help">ไม่พบตัวบทที่มีผลบังคับใน chunks.jsonl</span>`}</div>
+    </details>`).join("");
+
+  const trace = it.trace.length ? `<details><summary>ขั้นตอนของ agent (${it.trace.length})</summary>
+      <ul class="plain mono">${it.trace.map((t) => `<li><b>${esc(t.tool)}</b> ${esc(t.arguments)} <span class="help">${esc(t.status)}</span></li>`).join("")}</ul>
+    </details>` : "";
+
+  const autoBox = l ? `<div class="auto">${Object.entries(it.auto).filter(([, v]) => v !== null && v !== undefined)
+      .map(([k, v]) => `<span class="${v ? "t" : "f"}">${AUTO_NAMES[k] || k}: ${v ? "ผ่าน" : "ไม่ผ่าน"}</span>`).join("")
+      || `<span>ไม่มีผลตรวจอัตโนมัติ</span>`}</div>`
+    : `<p class="help" style="margin:10px 0 0">ผลตรวจอัตโนมัติจะแสดงหลังให้คะแนนข้อนี้</p>`;
+
+  $("main").innerHTML = `
+    <div class="card">
+      <div class="qhead"><span class="qid">${esc(it.id)}</span>
+        <span class="tag">${TYPES[it.type] || esc(it.type)}</span>
+        <span class="tag">ควร: ${EXPECT[it.expected_behavior] || esc(it.expected_behavior)}</span>
+        <span class="help">ข้อ ${cur + 1}/${view.length}${it.seconds ? ` · ${it.seconds} วินาที` : ""}</span></div>
+      <p class="question">${esc(it.question)}</p>
+    </div>
+    <div class="cols">
+      <div class="card">
+        <h2>คำตอบของระบบ</h2>
+        <div>${flags.join("")}</div>
+        <div class="text">${highlight(a.answer, nums)}</div>
+        ${a.correction ? `<h3>แก้ความเข้าใจ</h3><div class="box text">${highlight(a.correction, nums)}</div>` : ""}
+        ${a.clarifying_question ? `<h3>คำถามกลับ</h3><div class="box text">${esc(a.clarifying_question)}</div>` : ""}
+        ${calc}
+        <h3>มาตราที่อ้าง</h3>${citationList(a.citations)}
+      </div>
+      <div class="card">
+        <h2>เฉลย</h2>
+        <div class="text">${esc(it.reference_answer) || `<span class="help">ไม่มีเฉลย</span>`}</div>
+        ${nums.length ? `<h3>ตัวเลขที่ต้องมี</h3><div>${nums.map((n) => `<mark>${esc(n)}</mark>`).join(" · ")}</div>` : ""}
+        ${(it.wrong_numbers || []).length ? `<h3>ตัวเลขเก่าที่ผิด</h3><div>${it.wrong_numbers.map(esc).join(" · ")}</div>` : ""}
+        ${it.evidence.length ? `<h3>ข้อความที่ต้องอยู่ในตัวบท</h3><ul class="plain">${it.evidence.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
+        ${it.reference_source ? `<p class="help">${esc(it.reference_source)}</p>` : ""}
+      </div>
+    </div>
+    ${sections || trace ? `<div class="card"><h2>ตัวบทกฎหมาย</h2>${sections || `<span class="help">ไม่มีมาตราเฉลยหรือมาตราที่อ้าง</span>`}${trace}</div>` : ""}
+    <div class="card verdict">
+      <div class="btns">${VERDICTS.map(([v, name, key]) =>
+        `<button class="${v} ${l && l.verdict === v ? "on" : ""}" data-v="${v}">${name}<kbd>${key}</kbd></button>`).join("")}</div>
+      <textarea id="note" placeholder="หมายเหตุ เช่น ขาดตัวเลขใด อ้างมาตราผิด (ไม่บังคับ)">${esc(l?.note)}</textarea>
+      ${autoBox}
+      <div class="row">
+        <span id="status" class="${l ? "saved" : ""}">${l ? `บันทึกแล้ว ${esc(l.labelled_at)}` : "ยังไม่ตรวจ"}</span>
+        <label><input type="checkbox" id="autonext" ${autoNext ? "checked" : ""}> ไปข้อถัดไปที่ยังไม่ตรวจเมื่อให้คะแนน</label>
+        <span>
+          ${l ? `<button id="clear">ล้างคะแนน</button>` : ""}
+          <button id="prev">← ก่อนหน้า</button> <button id="next">ถัดไป →</button>
+        </span>
+      </div>
+      <p class="help" style="margin:8px 0 0">ปุ่มลัด: 1–4 ให้คะแนน · ← → เปลี่ยนข้อ · N พิมพ์หมายเหตุ · Esc ออกจากช่องหมายเหตุ · หมายเหตุบันทึกเมื่อกดคะแนน หรือ Ctrl+Enter</p>
+    </div>`;
+
+  $("main").querySelectorAll(".btns button").forEach((b) => (b.onclick = () => label(b.dataset.v)));
+  $("prev").onclick = () => go(cur - 1);
+  $("next").onclick = () => go(cur + 1);
+  if ($("clear")) $("clear").onclick = () => label("");
+  $("autonext").onchange = (e) => {
+    autoNext = e.target.checked;
+    try { localStorage.setItem("review.autoNext", autoNext ? "1" : "0"); } catch (err) {}
+  };
+  $("note").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") e.target.blur();
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const v = labels[it.id]?.verdict;
+      if (v) label(v, false); else setStatus("เลือกคะแนนก่อน แล้วหมายเหตุจะบันทึกไปด้วย", true);
+    }
+  });
+}
+
+function render() { renderHeader(); renderList(); renderMain(); }
+
+function go(k) {
+  if (!view.length) return;
+  cur = Math.max(0, Math.min(view.length - 1, k));
+  renderList(); renderMain();
+  window.scrollTo({ top: 0 });
+}
+
+function setStatus(text, bad) {
+  const s = $("status");
+  if (s) { s.textContent = text; s.className = bad ? "err" : "saved"; }
+}
+
+async function label(verdict, advance = true) {
+  const it = items[view[cur]];
+  const note = $("note").value;
+  setStatus("กำลังบันทึก…");
+  try {
+    const res = await fetch("/api/label", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: it.id, verdict, note }) });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (data.label) labels[it.id] = data.label; else delete labels[it.id];
+  } catch (e) {
+    setStatus("บันทึกไม่สำเร็จ — ยังเปิด python eval/review.py อยู่ไหม", true);
+    return;
+  }
+  renderHeader();
+  if (verdict && advance && autoNext) {
+    const after = view.findIndex((i, k) => k > cur && !labels[items[i].id]);
+    const before = view.findIndex((i) => !labels[items[i].id]);
+    const next = after >= 0 ? after : before;
+    if (next >= 0) { go(next); return; }
+  }
+  renderList(); renderMain();
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("textarea, input, select") || e.ctrlKey || e.metaKey || e.altKey) return;
+  const v = VERDICTS.find(([, , key]) => key === e.key);
+  if (v) { e.preventDefault(); label(v[0]); }
+  else if (e.key === "ArrowRight" || e.key === "j") go(cur + 1);
+  else if (e.key === "ArrowLeft" || e.key === "k") go(cur - 1);
+  else if (e.key === "n" || e.key === "N") { e.preventDefault(); $("note")?.focus(); }
+});
+
+$("ftype").onchange = applyFilter;
+$("fstate").onchange = applyFilter;
+
+fetch("/api/items").then((r) => r.json()).then((data) => {
+  items = data.items; labels = data.labels;
+  $("run").textContent = `${data.meta.run} → ${data.meta.labels}`;
+  [...new Set(items.map((i) => i.type))].forEach((t) =>
+    $("ftype").insertAdjacentHTML("beforeend", `<option value="${esc(t)}">${TYPES[t] || esc(t)}</option>`));
+  view = items.map((_, i) => i);
+  const first = view.findIndex((i) => !labels[items[i].id]);
+  cur = first >= 0 ? first : 0;
+  render();
+}).catch(() => { $("main").innerHTML = `<div class="card err">โหลดข้อมูลไม่ได้ ให้รัน python eval/review.py</div>`; });
+</script>
+</body>
+</html>

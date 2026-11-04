@@ -10,6 +10,7 @@ import re
 from pydantic import ValidationError
 from pythainlp.util import num_to_thaiword
 
+from src.agent.tools.get_rate import DATE_RATES, thai_date
 from src.agent.tools.search_law import AS_OF, search_results, section_rows
 from src.schemas import Answer, Calculation, Citation, Draft
 
@@ -130,10 +131,22 @@ def parse_draft(raw):
         raise ValueError(f"not valid JSON in the required format: {e}") from e
 
 
-def build_answer(raw, evidence, grounding=None):
+def with_working(text, calculation):
+    """The answer, then how the amount was worked out. Added after the checks by code: the model stated only the
+    amount, and readers could not tell which tenure band, rate or ceiling it came from."""
+    if not calculation or not calculation.get("explanation"):
+        return text
+    note = f" ({calculation['note']})" if calculation.get("note") else ""
+    return f"{text.rstrip()}\n\nวิธีคิด: {calculation['explanation']}{note}"
+
+
+def build_answer(raw, evidence, grounding=None, min_chars=None):
     """The checked Answer, or ValueError saying what the model must fix. With grounding, every number in the
-    answer must be in it: the model's own arithmetic gave wrong amounts, even next to a correct calculation."""
+    answer must be in it: the model's own arithmetic gave wrong amounts, even next to a correct calculation.
+    With min_chars, a shorter answer is sent back: told to answer directly, the model wrote only "ใช่" or "ไม่ได้"."""
     draft = parse_draft(raw)
+    if min_chars and not draft.not_found and not draft.clarifying_question and len(draft.answer.strip()) < min_chars:
+        raise ValueError("คำตอบสั้นเกินไป ให้ตอบตรง ๆ แล้วอธิบายเหตุผล เงื่อนไข และตัวเลขที่ข้อมูลเขียนไว้ด้วย")
     citations = []
     if draft.clarifying_question:
         draft.not_found = False  # asking is not refusing, though the model often sets both
@@ -177,7 +190,8 @@ def build_answer(raw, evidence, grounding=None):
         if extra:
             raise ValueError(f"the answer states numbers that are not in the data or the question: {[f'{n:g}' for n in extra]}. "
                              "Do not calculate or add numbers yourself. Use only numbers from the data, the calculation and the question")
-    return Answer(answer=draft.answer, citations=citations, calculation=calculation, as_of=AS_OF,
+    return Answer(answer=with_working(draft.answer, evidence.calculation if calculation else None), citations=citations,
+                  calculation=calculation, as_of=AS_OF,
                   confidence=draft.confidence, not_found=draft.not_found,
                   clarifying_question=draft.clarifying_question, correction=draft.correction)
 
@@ -187,9 +201,11 @@ def answer_from_tools(evidence):
     parts = []
     if evidence.calculation:
         c = evidence.calculation
-        parts.append(f"จำนวนเงินตามกฎหมายคือ {c['value']:,g} {UNITS.get(c['unit'], c['unit'])} ({c['formula']})")
+        parts.append(f"จำนวนเงินตามกฎหมายคือ {c['value']:,g} {UNITS.get(c['unit'], c['unit'])}")  # the working follows
     elif evidence.rates:
-        parts += [f"{r['source']} {r['clause']}: {r['value']} {UNITS.get(r['unit'], r['unit'])} มีผลตั้งแต่ {r['effective_from']}"
+        parts += [f"{r['source']} {r['clause']}: {DATE_RATES.get(r['name'], r['name'])} คือวันที่ {thai_date(r['value'])}"
+                  if r["unit"] == "date" else
+                  f"{r['source']} {r['clause']}: {r['value']} {UNITS.get(r['unit'], r['unit'])} มีผลตั้งแต่ {thai_date(r['effective_from'])}"
                   for r in evidence.rates]
     if not parts:
         return None
@@ -197,13 +213,13 @@ def answer_from_tools(evidence):
     return build_answer(text, evidence)
 
 
-def finalize(messages, evidence, complete, answer_format=FORMAT, grounding=None):
+def finalize(messages, evidence, complete, answer_format=FORMAT, grounding=None, min_chars=None):
     """Ask for the answer and validate it, asking again with the error up to RETRIES times. If its numbers are
     still not all in the grounding, code states the tool result instead, or the last answer is kept at low confidence."""
     for attempt in range(RETRIES + 1):
         reply = complete(messages).content
         try:
-            return build_answer(reply, evidence, grounding)
+            return build_answer(reply, evidence, grounding, min_chars)
         except ValueError as e:
             messages = [*messages, {"role": "assistant", "content": reply or ""},
                         {"role": "user", "content": f"คำตอบไม่ผ่านการตรวจ: {e}\n{answer_format}"}]

@@ -315,7 +315,7 @@ Asking back and correcting are measured in both directions, because recall alone
 - **Asking back is still weak.** `A04` and `A07` answer instead of asking, and `A05` is refused because the check says the results do not cover it. `G12`, `O03`, `T11` and `T16` ask about details the answer does not need, and `O03`, an out-of-scope question, is answered after asking.
 - **Some corrections fail.** `T15` does not state the right penalty, because its section is not found. The correction check reads the expected figures and key terms only.
 - **The number check needs every figure the question asks for.** `expected_numbers` lists the figures that answer the question, and `supporting_numbers` the reference's other figures, such as notice periods. Both leave out dates, section numbers and the steps of a calculation. `wrong_numbers` lists outdated figures, which fail an answer unless it is correcting that belief. A calculated amount must also equal the expected one. One person labelled these from the reference answers, so where to draw the line is a judgement. The answer may still state other figures that are not labelled.
-- **The LLM judge misses some missing figures.** It passes `T14` and `T15` for the agent, which leave out a required figure. The judge is the same model that wrote the answers, and it has not been checked against human labels.
+- **The LLM judge misses some missing figures.** It passes `T14` and `T15` for the agent, which leave out a required figure. The judge is the same model that wrote the answers. It was later checked against one person's labels of the final 100-question run: see [Manual review](#manual-review-the-fixes-from-it-and-a-fifth-held-out-check).
 - **Runs can vary despite `temperature=0`.** Two runs of an earlier version differed in 46 of 100 answer texts. A question near the edge of a check can change between runs: `O03` was answered in one recent run and refused in the next.
 - **Time.** Six new questions through `POST /ask`, one at a time, took 20 to 41 seconds on CPU, of which about 21 seconds is reranking. In the full evaluation, a few questions took over 60 seconds, the longest 122. That may be the client waiting out the rate limit, which we did not confirm. Times in the CSV files are lower than real ones, because they reuse saved scores.
 - **Earlier results.** `eval/results/min_score_*` holds answers from an earlier version of the agent, which relied on a `min_score` floor. Refusing from the content did better: 17/18 out-of-scope questions and 2/82 answerable ones refused, against 18/18 and 7/82 at the best floor. The option that produced them has been removed.
@@ -548,6 +548,73 @@ The code from the previous section ran on it 3 times, from a separate checkout. 
 - **The measured code is commit `36d5e65`.** All 3 changed runs used one version. Its diff from `f0f10c3` has a SHA-256 starting `2ba927151803745a`, the same as that commit's.
 - **These results were not used to change the system.**
 
+### Manual review, the fixes from it, and a fifth held-out check
+
+`python eval/review.py` opens a page that shows one saved answer at a time, next to the reference answer and the full text of the gold and cited sections. Each label (correct, partly correct, wrong, unsure) and note is saved at once, to `manual_labels_<mode>.csv` next to the answers. The automatic scores for a question stay hidden until it is labelled. `python eval/review.py --summary` compares the labels with the LLM judge and the behaviour check.
+
+One person labelled all 100 answers of `eval/results/after_fixes3`, in `eval/results/after_fixes3/manual_labels_agent.csv`:
+
+| Label | Count |
+|---|---:|
+| Correct | 51 |
+| Partly correct | 31 |
+| Wrong | 6 |
+| Unsure | 12, all out of scope |
+
+- **The judge does not pass wrong answers, but it passes incomplete ones.** On the 51 answers labelled correct or wrong, it agreed 47 times. It passed none of the 6 labelled wrong. It passed 20 of the 23 partly correct answers it judged, so it does not measure completeness.
+- **The behaviour check passed 4 wrong answers.** `T04`, `T10`, `T15` and `T16` had the expected form but the wrong content.
+
+The notes fell into five groups. Each fix was tuned on the 100 questions:
+
+1. **Calculations gave only the amount.** `calculate` now writes each step in Thai: the tenure band, the daily or hourly rate, the multiple, the ceiling or floor, and the amount before rounding. Code adds it after the answer as "วิธีคิด". A rate with no exact value in satang, such as 25,000 / 30 / 8, is left as a division, so the steps give the amount shown.
+2. **Four content errors.**
+   - `T04`: "the most deducted" now calculates the deduction at the ceiling. The question named "มาตรา 33", which was taken as a figure, so section numbers no longer count as figures.
+   - `T16`: a rate whose value is a date is shown as a Thai date, without the date its announcement took effect.
+   - `T10`: a question whether a named Act is in force adds the section that repeals it.
+   - `T15`: penalty sections name the duty only by number, such as "ฝ่าฝืนมาตรา 8". A question about a penalty now adds the 2 duties of the Acts found that share the most words with it, and the sections that penalise them.
+3. **Asking back said nothing else.** Asking for figures now states the rule first, from the section that needs them and the rates of the calculation, checked like an answer. If no checked rule can be written, it only asks.
+4. **Answers left out conditions.** The answer step now sees the whole quoted section, not one chunk, and the other sections the per-section check found to answer alone. It is told to give the conditions, exceptions, deadlines and pay, and an answer under 40 characters without a calculation is sent back. Told only to answer directly, the model wrote "ใช่" or "ไม่ได้", which `G28` and `G40` had also done before.
+5. **Refusals.** A refused question about what an employer must give is answered "กฎหมายที่ระบบมีไม่ได้บังคับเรื่อง... จึงขึ้นกับสัญญาจ้างหรือข้อบังคับของบริษัท", with no citation. The model names only the topic. A question about what an employer may do, such as deduct pay, keeps the plain refusal: worded this way, `O18` said the law did not cover deducting for a uniform, which s.76 limits.
+
+Before any fix, `eval/heldout5.jsonl` and its lock were written: 44 questions, `S01` to `S44`. Questions close to one in the earlier sets were replaced, except calculations, which reuse their wording with new figures:
+
+- 12 general questions whose complete answer needs the section's conditions or deadlines
+- 10 calculations, every figure given
+- 4 clarifications, whose reference gives the rule while asking
+- 6 traps and 4 corrections
+- 8 out of scope: 4 about what an employer must give, and 4 not about Thai labour law
+
+Two label fields are new. `supporting_numbers` may now label any question: the steps of a calculation, or the rule given while asking. `refusal` says which kind an out-of-scope question is. `refusal_ok` checks that the wording fits that kind. The old code ran 3 times from a separate checkout of `8bc57e6`, and the changed code ran 3 times:
+
+| Measure, 44 new questions | Before, 3 runs | 95% interval | After, 3 runs | 95% interval |
+|---|---:|---:|---:|---:|
+| Expected behaviour | 40-41/44 | 79-96% | 41-42/44 | 82-98% |
+| Figures the question asks for, no outdated one | 16/18 | 67-97% | 17-18/18 | 74-99% |
+| Supporting figures | 4-5/23 | 7-37% | 15-16/23 | 45-81% |
+| Cites a gold section | 27/32 | 68-93% | 29-30/32 | 76-97% |
+| LLM judge says correct | 23-25/32 | 55-84% | 29/32 | 76-97% |
+| Refusal worded for its kind | 4/8 | 22-78% | 8/8 | 68-100% |
+| Asked back when it should | 2/4 | 15-85% | 2/4 | 15-85% |
+| Asked back when not needed | 1-2/40 | 0-13% | 0-1/40 | 0-9% |
+
+- **Most of the gain in supporting figures is the working that code adds.** Calculations went from 2-3/10 to 10/10. On the 4 general questions with supporting figures, the count stayed at 1/4. Whether general answers are more complete needs the manual review.
+- **Fixed on new questions:** `S27`, the most deducted in 2570, asked for a wage before and now answers 875 baht in every run. `S12` now cites s.55 and passes the judge.
+- **A refusal can now state something false.** `S26` asks how many days of leave a new employee has. The check found no section covering it, so the agent said the law does not require it, while s.32 gives sick leave from the first day. The plain refusal was wrong too, but did not claim anything.
+- **Still wrong:** `S28` says the welfare fund is deducted from December 2569 pay, from the rate's effective date. Collection starts in January 2570. The date fix only applies when the collection-start date itself is looked up. `S23` and `S26` never ask back.
+- **The 100 questions, run once more** with `--out=eval/results/after_fixes4`, against `after_fixes3`:
+  - Figures the question asks for: 52/58 before, 55/58 after. Supporting figures: 6/10 before, 9/10 after.
+  - Cites a gold section: 68/74 before, 70/74 after. The judge: 62/74 before, 64/74 after.
+  - Expected behaviour: 95/100 before, 92/100 after. `X01` and `T13` lost their correction, in both runs of the changed code. `G33` asked back in both. `O08` was answered instead of refused.
+  - `C09`, a plain severance question, now also gives the special-severance rule for machinery layoffs, which does not apply, so the judge fails it.
+- **How the set was kept apart:**
+  - I wrote the 44 questions knowing the planned fixes.
+  - The first frozen version, diff SHA-256 `6dbbb127`, made the one-word answers in fix 4, found on the 100 questions. Its held-out run was stopped and set aside unread, and the length check was added.
+  - Before that, a few per-question score lines of both held-out runs appeared in progress logs. No held-out answer was read before the code was frozen again.
+  - The old and new runs share reranker scores, which depend only on the query and text.
+  - The labels are one person's judgement.
+- **The measured code** is the working tree on top of `8bc57e6`, with a diff for `src/`, `eval/run_answers.py` and `eval/run_heldout.py` whose SHA-256 starts `97f2e192`.
+- **These results were not used to change the system.**
+
 ## Project structure
 
 ```
@@ -579,7 +646,9 @@ The code from the previous section ran on it 3 times, from a separate checkout. 
 │   ├── heldout2.jsonl        # 60 locked questions written before the fixes
 │   ├── heldout3.jsonl        # 60 locked questions written before the asking-back changes
 │   ├── heldout4.jsonl        # 48 locked money questions written before the figures change
+│   ├── heldout5.jsonl        # 44 locked questions written before the fixes from the manual review
 │   ├── run_heldout.py        # runs them several times and reports ranges
+│   ├── review.py, review.html # label saved answers by hand in the browser
 │   └── results/              # every saved answer
 ├── requirements.txt          # pinned Python dependencies
 └── README.md
@@ -645,6 +714,8 @@ python eval/run_heldout.py                    # first held-out set, 3 runs
 python eval/run_heldout.py --set=heldout2 --label=fixed
 python eval/run_heldout.py --set=heldout3 --label=fixed
 python eval/run_heldout.py --set=heldout4 --label=fixed
+python eval/run_heldout.py --set=heldout5 --label=fixed
+python eval/review.py --summary              # manual labels against the judge
 ```
 
 ## Limitations

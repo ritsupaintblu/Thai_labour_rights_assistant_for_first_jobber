@@ -21,6 +21,8 @@ BEHAVIOR_BY_TYPE = {"out_of_scope": {"refuse"}, "clarification": {"ask_clarifica
                     "general": {"answer"}, "calculation": {"answer"}, "trap": {"answer", "correct_premise"}}
 NO_SOURCE = "ไม่มีข้อมูลใน corpus"
 REFUSALS = ("ไม่ทราบ เนื่องจาก", "I don't know because")
+# not_required: a workplace matter the law leaves to the contract or company rules; outside: not Thai labour law at all
+REFUSAL_KINDS = ("not_required", "outside")
 
 
 def squeeze(text):
@@ -65,6 +67,11 @@ def check(question, sections, in_force_text, source_ids):
             errors.append(f"expected number is not in the reference answer: {number}")
         for number in set(question.get("wrong_numbers", [])) - digits_in(question.get("wrong_answer") or ""):
             errors.append(f"wrong number is not in wrong_answer: {number}")
+    elif set(question.get("supporting_numbers", [])) - digits_in(question["reference_answer"]):
+        # a question with no figure to ask for can still have figures a complete answer gives
+        errors.append(f"supporting number is not in the reference answer: {set(question['supporting_numbers']) - digits_in(question['reference_answer'])}")
+    if question.get("refusal") not in (None, *REFUSAL_KINDS) or (question.get("refusal") and question["type"] != "out_of_scope"):
+        errors.append(f"refusal must be one of {REFUSAL_KINDS}, on an out-of-scope question")
     if question["type"] == "out_of_scope":
         if question["gold_sections"] or not question.get("not_found"):
             errors.append("out-of-scope questions need not_found and no gold sections")

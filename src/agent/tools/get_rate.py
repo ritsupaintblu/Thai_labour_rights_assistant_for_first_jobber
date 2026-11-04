@@ -17,6 +17,16 @@ ROOT = Path(__file__).resolve().parents[3]
 BUSINESSES = {"hotel_type_2_4", "service", "other"}
 PROVINCE_ALIASES = {"กรุงเทพ": "กรุงเทพมหานคร", "กรุงเทพฯ": "กรุงเทพมหานคร", "กทม": "กรุงเทพมหานคร", "กทม.": "กรุงเทพมหานคร"}
 MIN_WAGE = "min_wage_daily"
+# what a rate whose value is a date stands for, in Thai
+DATE_RATES = {"ewf_collection_start": "วันเริ่มจัดเก็บเงินสะสมและเงินสมทบกองทุนสงเคราะห์ลูกจ้าง"}
+THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน",
+               "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+
+
+def thai_date(iso):
+    """2027-01-01 as 1 มกราคม 2570. The model copied ISO dates from the table and confused them with each other."""
+    day = date.fromisoformat(iso)
+    return f"{day.day} {THAI_MONTHS[day.month - 1]} {day.year + 543}"
 
 
 @lru_cache(maxsize=1)

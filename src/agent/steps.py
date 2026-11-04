@@ -3,8 +3,11 @@
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 
 from pydantic import BaseModel, ValidationError
+
+from src.agent.tools.get_rate import THAI_MONTHS
 
 REWRITE = """เขียนคำถามด้านสิทธิแรงงานเป็นภาษาที่กฎหมายแรงงานไทยใช้ เพื่อนำไปค้นตัวบท
 คงทุกเงื่อนไขและรายละเอียดของคำถามเดิมไว้ เปลี่ยนเฉพาะคำพูดทั่วไปเป็นคำในกฎหมาย ห้ามตอบคำถาม ห้ามเพิ่มเรื่องที่คำถามไม่ได้พูด
@@ -98,6 +101,22 @@ A: {"belief": null, "stated": false, "belief_is_wrong": false, "law_says": null,
 ผลค้น: ให้นายจ้างจ่ายค่าจ้างอย่างน้อยเดือนละหนึ่งครั้ง
 Q: นายจ้างห้ามลูกจ้างทำงานเสริมได้ใช่ไหม
 A: {"belief": "นายจ้างห้ามลูกจ้างทำงานเสริมได้", "stated": true, "belief_is_wrong": false, "law_says": null, "quote": ""}"""
+# a question the law found does not cover: is it a workplace matter left to the contract, or not Thai labour law at all
+# Only what the employer must give: asked what an employer may do to an employee, such as deduct pay, a rule the
+# search missed would be denied. Asked about deducting for a uniform, that wording said the law did not cover a
+# deduction, which s.76 limits
+SCOPE = """ตัดสินประเภทของคำถามที่ระบบหาคำตอบในกฎหมายไม่พบ ห้ามตอบคำถาม
+workplace=true เฉพาะเมื่อถามว่านายจ้างหรือบริษัทในประเทศไทยต้องให้ ต้องจ่าย หรือต้องจัดสิ่งใดให้ลูกจ้าง เช่น สวัสดิการ เงินเพิ่ม หรือวันลาพิเศษ
+workplace=false เมื่อถามว่านายจ้างทำสิ่งใดกับลูกจ้างได้หรือไม่ เช่น หักเงิน ห้าม สั่ง หรือเลิกจ้าง และเมื่อถามเรื่องอื่น เช่น กฎหมายของประเทศอื่น ภาษี การเงินส่วนตัว การสมัครงาน หรือการทำธุรกิจ
+topic คือเรื่องที่ถาม เป็นคำนามสั้น ๆ ไม่เกิน 6 คำ ไม่มีตัวเลข
+ตอบ JSON เท่านั้น
+Q: บริษัทต้องจ่ายค่าเช่าบ้านให้พนักงานเดือนละเท่าไร
+A: {"workplace": true, "topic": "ค่าเช่าบ้าน"}
+Q: บริษัทหักเงินเดือนค่าที่จอดรถได้ไหม
+A: {"workplace": false, "topic": "การหักค่าที่จอดรถ"}
+Q: ค่าครองชีพที่ญี่ปุ่นเดือนละเท่าไร
+A: {"workplace": false, "topic": "ค่าครองชีพในญี่ปุ่น"}"""
+MAX_TOPIC = 60
 
 # words too common to show that a quote is about the question
 COMMON = {"นายจ้าง", "ลูกจ้าง", "ต้อง", "ได้", "ให้", "การ", "ความ", "ที่", "และ", "หรือ", "ของ", "ใน", "มี", "เป็น", "ไม่",
@@ -119,13 +138,22 @@ DEDUCTION_TOPICS = {"sso_contribution": re.compile(r"ประกันสัง
 DEDUCTED = re.compile(r"หัก|deduct", re.I)
 # a question about the rate or a ceiling, which needs no wage
 ASKS_A_RATE = re.compile(r"ร้อยละ|เปอร์เซ็นต์|%|อัตรา|เพดาน|ฐาน|สูงสุด|ต่ำสุด|rate|ceiling", re.I)
+# the most that can be deducted, which is the deduction at the ceiling. Answered with the rates alone, the model
+# gave the ceiling of 17,500 baht as the amount deducted
+ASKS_THE_MOST = re.compile(r"สูงสุด|มากที่สุด|มากสุด|at most|maximum", re.I)
+# a question about the penalty for breaking a rule, or whether an Act is still in force
+ASKS_A_PENALTY = re.compile(r"โทษ|ค่าปรับ|ถูกปรับ|โดนปรับ|จำคุก|ติดคุก|penalt|jail", re.I)
+ASKS_IF_IN_FORCE = re.compile(r"ยังใช้บังคับ|ยังมีผล|ยังใช้อยู่|ยังใช้ได้|ยกเลิก|still in force|repealed", re.I)
+ACT_NAMED = re.compile(r"(?:พ\.ร\.บ\.|พระราชบัญญัติ|พ\.ร\.ก\.|พระราชกำหนด)\s*(.+?)\s*(?:พ\.ศ\.|ปี)\s*(25\d\d)")
+SECTION_NAMED = re.compile(r"(?:มาตรา|ม\.|section|s\.)\s*\d+(?:/\d+)?", re.I)
+PENALTY_DUTIES = 2  # the duties closest to the question, each added with the sections that penalise it
+MIN_SHARED_WORDS = 2
 MIN_QUOTE = 10
 # a year in the question decides which rate applies. Earlier years are left out: they name the Acts, not dates
 BE_YEAR = re.compile(r"(?<![\d,.])(25[6-9]\d)(?![\d,])")
 CE_YEAR = re.compile(r"(?<![\d,.])(20[2-6]\d)(?![\d,])")
 FIRST_BE_YEAR = 2565
-MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน",
-          "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+MONTHS = THAI_MONTHS
 # rules for one group of people, as the statutes name them, and how a question shows it is about that group
 GROUPS = [
     (re.compile(r"หญิงมีครรภ์"), re.compile(r"ท้อง|ครรภ์|คลอด|pregnan|maternity", re.I)),
@@ -139,6 +167,11 @@ GROUPS = [
 # an age, not a length of service: "อายุ 16" or "16 years old", never "ทำงานมา 3 ปี"
 AGE = re.compile(r"อายุ\s*(?:ครบ\s*)?(\d{1,2})|(\d{1,2})[- ]years?[- ]old|aged (\d{1,2})", re.I)
 ADULT = 18
+
+
+class ScopeResult(BaseModel):
+    workplace: bool = False
+    topic: str = ""
 
 
 class DependsResult(BaseModel):
@@ -215,6 +248,17 @@ def check_depends(question, context, complete, rewrite=""):
     return DependsResult()
 
 
+def refusal_scope(question, complete):
+    """Whether a question the law does not cover is a workplace matter, and its topic in a few words, or None for
+    another kind of question. The topic goes into a sentence code writes, so a long or odd one is not used."""
+    result = ask_json(SCOPE, f"Q: {question}", complete, ScopeResult)
+    if not result.workplace:
+        return None
+    topic = " ".join(result.topic.split()).strip("\"'“”.?")
+    topic = re.sub(r"^เรื่อง", "", topic).strip()
+    return topic if topic and len(topic) <= MAX_TOPIC and not re.search(r"\d", topic) else "นี้"
+
+
 def check_belief(question, context, complete):
     """A wrong belief, if the question states one. Reported speech such as "บอกว่า" also counts, if the model says
     the belief is stated and quotes the results against it."""
@@ -247,14 +291,61 @@ def question_date(question, as_of):
 
 
 def gives_figures(question):
-    """Whether the question gives a number other than a year, such as a wage, hours or tenure."""
-    return re.search(r"\d", CE_YEAR.sub("", BE_YEAR.sub("", question))) is not None
+    """Whether the question gives a number other than a year or a section, such as a wage, hours or tenure.
+    "ประกันสังคมมาตรา 33" names who pays, not a figure for the calculation."""
+    return re.search(r"\d", SECTION_NAMED.sub("", CE_YEAR.sub("", BE_YEAR.sub("", question)))) is not None
 
 
 def asks_own_deduction(question, topic):
     """How much is deducted from the asker's pay, with no figure given but a year: only the wage can answer it."""
     return bool(topic.search(question) and DEDUCTED.search(question) and ASKS_AN_AMOUNT.search(question)
                 and not ASKS_A_RATE.search(question) and not gives_figures(question))
+
+
+def asks_most_deducted(question, topic):
+    """The most deducted from anyone's pay, with no wage given: the deduction at the ceiling answers it."""
+    return bool(topic.search(question) and DEDUCTED.search(question) and ASKS_AN_AMOUNT.search(question)
+                and ASKS_THE_MOST.search(question) and not gives_figures(question))
+
+
+@lru_cache(maxsize=None)
+def section_words(key):
+    from src.agent.tools.search_law import section_texts
+    return frozenset(key_words(section_texts()[key]))
+
+
+def penalty_sections(question, rewrite, rows):
+    """For a question about a penalty: the duties of the Acts found whose words are closest to the question, and the
+    sections that penalise them. The search found the duty's neighbours but not the penalty, which names the duty
+    only by number. Closeness is the share of words in common, as a count favoured long sections that mention
+    everything; each duty must also share MIN_SHARED_WORDS key words with the question."""
+    from src.agent.tools.search_law import penalties, section_texts
+    if not ASKS_A_PENALTY.search(question):
+        return []
+    laws = {r["law"] for r in rows}
+    asked = key_words(f"{question} {rewrite}")
+    texts = section_texts()
+    scored = []
+    for duty in penalties():
+        if duty[0] in laws and duty in texts and "ต้องระวางโทษ" not in texts[duty]:
+            words = section_words(duty)
+            shared = len(asked & words)
+            scored.append((shared / len(asked | words) if words else 0, shared, duty))
+    keys = []
+    for _, shared, duty in sorted(scored, reverse=True)[:PENALTY_DUTIES]:
+        if shared >= MIN_SHARED_WORDS:
+            keys += [duty, *penalties()[duty]]
+    return list(dict.fromkeys(keys))
+
+
+def repealing_sections(question):
+    """For a question whether a named Act is still in force: the sections that repeal it. The search found the
+    transitional sections that mention the old Act, and the answer read as if it were still in force."""
+    from src.agent.tools.search_law import repealed_by
+    match = ACT_NAMED.search(question)
+    if not match or not ASKS_IF_IN_FORCE.search(question):
+        return []
+    return repealed_by(match.group(1), match.group(2))
 
 
 def is_minor(text):

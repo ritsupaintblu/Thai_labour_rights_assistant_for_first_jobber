@@ -34,6 +34,7 @@ class Calculation(BaseModel):
     unit: str
     formula: str
     legal_basis: str
+    explanation: str = ""  # each step in Thai, written by calculate, not the model
 
 
 class Answer(BaseModel):

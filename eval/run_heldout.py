@@ -53,7 +53,7 @@ def spread(values):
 
 def outcomes(q, record):
     answer = record["answer"]
-    return {**{m: record[m] for m in METRICS}, "correction_ok": correction_ok(q, answer),
+    return {**{m: record.get(m) for m in METRICS}, "correction_ok": correction_ok(q, answer),
             "asked": bool(answer["clarifying_question"]), "refused": answer["not_found"]}
 
 

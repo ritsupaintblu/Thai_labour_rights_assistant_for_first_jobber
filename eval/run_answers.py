@@ -32,7 +32,9 @@ BASELINE_SYSTEM = f"คุณเป็นผู้ช่วยด้านสิ
 JUDGE_SYSTEM = """คุณเป็นผู้ตรวจคำตอบ เทียบคำตอบกับเฉลยเท่านั้น ไม่ให้คะแนนความยาวหรือสำนวน
 คำตอบถูกเมื่อข้อเท็จจริงหลักและตัวเลขตรงกับเฉลย และไม่มีข้อมูลที่ขัดกับเฉลย
 ตอบ JSON เท่านั้น: {"correct": true} หรือ {"correct": false}"""
-METRICS = ["behaviour_ok", "number_ok", "supporting_ok", "citation_hit", "judge_correct"]
+METRICS = ["behaviour_ok", "number_ok", "supporting_ok", "citation_hit", "judge_correct", "refusal_ok"]
+# the words of a refusal that says the law found leaves the matter to the contract or company rules
+NOT_REQUIRED_WORDS = "ไม่ได้บังคับ"
 
 
 def behaviour_ok(q, a):
@@ -56,6 +58,14 @@ def number_ok(q, a):
     if q["expected_behavior"] == "answer" and any(mentions_number(n, text) for n in q.get("wrong_numbers", [])):
         return False
     return all(mentions_number(n, text) for n in q["expected_numbers"])
+
+
+def refusal_ok(q, a):
+    """A refusal worded for its kind: a workplace matter as left to the contract, anything else without that
+    claim. None for a question with no refusal label."""
+    if not q.get("refusal"):
+        return None
+    return a["not_found"] and (NOT_REQUIRED_WORDS in a["answer"]) == (q["refusal"] == "not_required")
 
 
 def supporting_ok(q, a):
@@ -190,6 +200,7 @@ def run_mode(mode, answerer, questions, complete):
                 done[q["id"]]["number_ok"] = number_ok(q, done[q["id"]]["answer"])
                 done[q["id"]]["supporting_ok"] = supporting_ok(q, done[q["id"]]["answer"])
                 done[q["id"]]["citation_hit"] = citation_hit(q, done[q["id"]]["answer"])
+                done[q["id"]]["refusal_ok"] = refusal_ok(q, done[q["id"]]["answer"])
                 continue
             started = time.perf_counter()
             try:
@@ -204,11 +215,12 @@ def run_mode(mode, answerer, questions, complete):
             record = {"id": q["id"], "type": q["type"], "question": q["question"], "answer": answer, "trace": trace,
                       "seconds": seconds, "behaviour_ok": behaviour_ok(q, answer), "number_ok": number_ok(q, answer),
                       "supporting_ok": supporting_ok(q, answer),
-                      "citation_hit": citation_hit(q, answer), "judge_correct": correct}
+                      "citation_hit": citation_hit(q, answer), "judge_correct": correct,
+                      "refusal_ok": refusal_ok(q, answer)}
             done[q["id"]] = record
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
             f.flush()
-            print(mode, q["id"], seconds, {m: record[m] for m in METRICS}, flush=True)
+            print(mode, q["id"], seconds, {m: record.get(m) for m in METRICS}, flush=True)
     records = [done[q["id"]] for q in questions if q["id"] in done]
     if len(records) < len(questions):
         print(f"{mode}: only {len(records)} of {len(questions)} questions finished. Rerun to retry the rest", flush=True)
@@ -224,7 +236,7 @@ def summarize(mode, records):
     for group, rs in groups.items():
         row = {"mode": mode, "group": group, "questions": len(rs), "seconds_per_question": round(sum(r["seconds"] for r in rs) / len(rs), 1)}
         for m in METRICS:
-            known = [r[m] for r in rs if r[m] is not None]
+            known = [r.get(m) for r in rs if r.get(m) is not None]
             row[m] = f"{sum(known)}/{len(known)}" if known else ""
         rows.append(row)
     return rows

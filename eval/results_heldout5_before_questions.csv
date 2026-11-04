@@ -1,0 +1,45 @@
+id,type,expected_behavior,behaviour_ok,number_ok,supporting_ok,citation_hit,judge_correct,refusal_ok,correction_ok,asked,refused,flips
+S01,general,answer,1 1 1,1 1 1,0 0 0,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S02,general,answer,1 1 1,- - -,- - -,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S03,general,answer,1 1 1,- - -,- - -,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S04,general,answer,0 1 0,- - -,0 0 0,0 1 0,0 1 0,- - -,- - -,1 0 1,0 0 0,behaviour_ok citation_hit judge_correct asked
+S05,general,answer,1 1 1,1 1 1,0 0 0,1 1 1,0 0 0,- - -,- - -,0 0 0,0 0 0,
+S06,general,answer,1 1 1,- - -,- - -,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S07,general,answer,1 1 1,- - -,- - -,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S08,general,answer,1 1 1,- - -,1 1 1,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S09,general,answer,1 1 1,- - -,- - -,0 0 0,0 0 0,- - -,- - -,0 0 0,0 0 0,
+S10,general,answer,1 1 1,- - -,- - -,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S11,general,answer,1 1 1,- - -,- - -,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S12,general,answer,1 1 1,- - -,- - -,0 0 0,0 0 0,- - -,- - -,0 0 0,0 0 0,
+S13,calculation,answer,1 1 1,1 1 1,0 1 1,1 1 1,1 0 0,- - -,- - -,0 0 0,0 0 0,supporting_ok judge_correct
+S14,calculation,answer,1 1 1,1 1 1,0 0 0,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S15,calculation,answer,1 1 1,1 1 1,0 0 0,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S16,calculation,answer,1 1 1,1 1 1,0 0 0,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S17,calculation,answer,1 1 1,1 1 1,0 0 0,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S18,calculation,answer,1 1 1,1 1 0,0 0 0,1 1 1,1 1 0,- - -,- - -,0 0 0,0 0 0,number_ok judge_correct
+S19,calculation,answer,1 1 1,1 1 1,1 0 1,1 1 1,1 1 0,- - -,- - -,0 0 0,0 0 0,supporting_ok judge_correct
+S20,calculation,answer,1 1 1,1 1 1,0 0 0,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S21,calculation,answer,1 1 1,1 1 1,0 0 0,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S22,calculation,answer,1 1 1,1 1 1,1 1 1,1 1 1,1 1 1,- - -,- - -,0 0 0,0 0 0,
+S23,clarification,ask_clarification,0 0 0,- - -,0 0 0,- - -,- - -,- - -,- - -,0 0 0,0 0 0,
+S24,clarification,ask_clarification,1 1 1,- - -,0 0 0,- - -,- - -,- - -,- - -,1 1 1,0 0 0,
+S25,clarification,ask_clarification,1 1 1,- - -,0 0 0,- - -,- - -,- - -,- - -,1 1 1,0 0 0,
+S26,clarification,ask_clarification,0 0 0,- - -,0 0 0,- - -,- - -,- - -,- - -,0 0 0,1 1 1,
+S27,trap,answer,0 0 0,0 0 0,0 0 0,0 0 0,0 0 0,- - -,- - -,1 1 1,0 0 0,
+S28,trap,answer,1 1 1,- - -,1 1 1,1 1 1,0 0 0,- - -,- - -,0 0 0,0 0 0,
+S29,trap,correct_premise,1 1 1,1 1 1,0 0 0,1 1 1,1 1 1,- - -,1 1 1,0 0 0,0 0 0,
+S30,trap,correct_premise,1 1 1,- - -,- - -,1 1 1,1 1 1,- - -,1 1 1,0 0 0,0 0 0,
+S31,trap,correct_premise,1 1 1,1 1 1,- - -,1 1 1,1 1 1,- - -,1 1 1,0 0 0,0 0 0,
+S32,trap,correct_premise,1 1 1,1 1 1,- - -,0 0 0,1 1 1,- - -,1 1 1,0 0 0,0 0 0,
+S33,correction,correct_premise,1 1 1,- - -,0 0 0,1 0 1,1 1 1,- - -,1 1 1,0 0 0,0 0 0,citation_hit
+S34,correction,correct_premise,1 1 1,1 1 1,1 0 0,1 1 1,1 1 1,- - -,1 1 1,0 0 0,0 0 0,supporting_ok
+S35,correction,correct_premise,1 1 1,0 0 1,- - -,1 1 1,0 0 1,- - -,0 0 0,0 0 0,0 0 0,number_ok judge_correct
+S36,correction,correct_premise,1 1 1,- - -,- - -,1 1 1,1 1 1,- - -,1 1 1,0 0 0,0 0 0,
+S37,out_of_scope,refuse,1 1 1,- - -,- - -,- - -,- - -,0 0 0,- - -,0 0 0,1 1 1,
+S38,out_of_scope,refuse,1 1 1,- - -,- - -,- - -,- - -,0 0 0,- - -,0 0 0,1 1 1,
+S39,out_of_scope,refuse,1 1 1,- - -,- - -,- - -,- - -,0 0 0,- - -,0 0 0,1 1 1,
+S40,out_of_scope,refuse,1 1 1,- - -,- - -,- - -,- - -,0 0 0,- - -,0 0 0,1 1 1,
+S41,out_of_scope,refuse,1 1 1,- - -,- - -,- - -,- - -,1 1 1,- - -,0 0 0,1 1 1,
+S42,out_of_scope,refuse,1 1 1,- - -,- - -,- - -,- - -,1 1 1,- - -,0 0 0,1 1 1,
+S43,out_of_scope,refuse,1 1 1,- - -,- - -,- - -,- - -,1 1 1,- - -,0 0 0,1 1 1,
+S44,out_of_scope,refuse,1 1 1,- - -,- - -,- - -,- - -,1 1 1,- - -,0 0 0,1 1 1,

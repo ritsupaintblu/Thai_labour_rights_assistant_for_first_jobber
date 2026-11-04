@@ -7,11 +7,14 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from eval.run_answers import behaviour_row, citation_hit, correction_ok, number_ok, source_titles, supporting_ok
+from eval.run_answers import (behaviour_row, citation_hit, correction_ok, number_ok, refusal_ok, source_titles,
+                              supporting_ok)
 
-from src.agent.loop import WRITE, Agent, focus
-from src.agent.steps import (BELIEF, BELIEF_REPORTED, CHECK, DEDUCTION_TOPICS, DEPENDS, REWRITE, applies,
-                             asks_own_deduction, check_belief, check_depends, check_results, question_date)
+from src.agent.loop import RULE, WRITE, Agent, focus, rate_text
+from src.agent.steps import (BELIEF, BELIEF_REPORTED, CHECK, DEDUCTION_TOPICS, DEPENDS, REWRITE, SCOPE, applies,
+                             asks_own_deduction, check_belief, check_depends, check_results, penalty_sections,
+                             question_date, refusal_scope, repealing_sections)
+from src.agent.tools.search_law import penalties
 from src.agent.tools.calculate import calculate
 from src.agent.tools.get_rate import get_rate, place_in
 from src.agent.tools.search_law import SearchLaw, section_rows
@@ -110,6 +113,22 @@ class Calculate(unittest.TestCase):
         self.assertEqual(calculate("wage_share", 600, "daily", days=7, percent=70, basis="LPA2541 s.116")["status"], "invalid")
         self.assertEqual(calculate("wage_share", 600, "daily", days=7, percent=50, basis="s.116")["status"], "invalid")
 
+    def test_the_explanation_shows_the_band_rate_and_ceiling_used(self):
+        self.assertIn("ครบ 3 ปีแต่ไม่ครบ 6 ปี", calculate("severance", 25000, years=3, months=2)["explanation"])
+        self.assertIn("25,000 / 30 x 180 = 150,000 บาท", calculate("severance", 25000, years=3, months=2)["explanation"])
+        self.assertIn("ค่าจ้างต่อชั่วโมง 400 / 8 = 50 บาท", calculate("overtime", 400, "daily", hours=2)["explanation"])
+        self.assertIn("1.5 เท่า", calculate("overtime", 400, "daily", hours=2)["explanation"])
+        self.assertIn("เกินเพดาน 17,500 บาท", calculate("sso_contribution", 35000, as_of="2026-06-01")["explanation"])
+        self.assertIn("82.50 บาท ปัดเศษ", calculate("sso_contribution", 1500, as_of="2026-06-01")["explanation"])
+        self.assertIn("รวมไม่เกิน 360 วัน", calculate("special_severance", 24000, years=26)["explanation"])
+        self.assertEqual(calculate("ewf_contribution", 20000, as_of="2026-11-01")["note"], "เริ่มเก็บจริงวันที่ 1 มกราคม 2570")
+
+    def test_a_rate_with_no_exact_satang_is_not_rounded_in_the_explanation(self):
+        # 25,000 / 30 / 8 is 104.1666..., so showing 104.17 x 1.5 x 2 would not give the amount shown
+        explanation = calculate("overtime", 25000, hours=2)["explanation"]
+        self.assertIn("25,000 / 30 / 8 x 1.5 x 2 ชั่วโมง = 312.50 บาท", explanation)
+        self.assertNotIn("104", explanation)
+
     def test_bad_input_is_rejected(self):
         self.assertEqual(calculate("severance", -1)["status"], "invalid")
         self.assertEqual(calculate("bonus", 100)["status"], "invalid")
@@ -152,6 +171,19 @@ class BuildAnswer(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "150000"):
             build_answer(draft(answer="ได้ 140,000 บาท"), self.evidence)
         self.assertEqual(build_answer(draft(answer="ได้ 150,000 บาท"), self.evidence).calculation.value, 150000)
+
+    def test_a_one_word_answer_is_sent_back(self):
+        with self.assertRaisesRegex(ValueError, "สั้นเกินไป"):
+            build_answer(draft(answer="ได้"), self.evidence, min_chars=40)
+        long_enough = "ลาคลอดได้ไม่เกิน 120 วัน โดยนับรวมวันหยุดที่อยู่ระหว่างวันลาด้วย"
+        self.assertEqual(build_answer(draft(answer=long_enough), self.evidence, min_chars=40).answer, long_enough)
+        self.assertTrue(build_answer(draft(answer="ไม่ทราบ", not_found=True, citations=[]), self.evidence, min_chars=40).not_found)
+
+    def test_code_adds_the_working_after_the_answer(self):
+        self.evidence.add_calculation(calculate("severance", 25000, years=3))
+        answer = build_answer(draft(answer="ได้ 150,000 บาท"), self.evidence)
+        self.assertTrue(answer.answer.startswith("ได้ 150,000 บาท\n\nวิธีคิด: ทำงาน 3 ปี อยู่ในช่วงครบ 3 ปีแต่ไม่ครบ 6 ปี"))
+        self.assertEqual(answer.calculation.explanation, calculate("severance", 25000, years=3)["explanation"])
 
     def test_a_rate_used_is_cited_automatically(self):
         self.evidence.add_rate({"status": "found", "name": "min_wage_daily", "value": 372, "unit": "baht_per_day", "clause": "ข้อ 4", "effective_from": "2025-07-01", "source": "ประกาศ"})
@@ -402,6 +434,43 @@ class AgentLoop(unittest.TestCase):
         self.assertEqual(answer.clarifying_question, "ขอทราบค่าจ้าง")
         self.assertTrue([t for t in trace if t["arguments"].startswith("by code")])
 
+    def test_asking_for_the_wage_states_the_rule_first(self):
+        rule = draft(answer="หักร้อยละ 5 ของค่าจ้าง โดยใช้ฐานไม่เกิน 17,500 บาท", citations=[{"law": "SSA2533", "section": "46"}])
+        answer, trace, calls = run_agent(question="ประกันสังคมหักเดือนละเท่าไร", final=[rule])
+        self.assertEqual(answer.clarifying_question, "ขอทราบค่าจ้าง")
+        self.assertEqual(answer.answer, "หักร้อยละ 5 ของค่าจ้าง โดยใช้ฐานไม่เกิน 17,500 บาท\n\nขอทราบค่าจ้าง")
+        self.assertEqual([(c.law, c.section) for c in answer.citations][0], ("SSA2533", "46"))
+        shown = next(m for m, _ in calls if m[0]["content"] == RULE)[1]["content"]
+        self.assertIn("17500", shown)  # the ceiling comes from the rates table, not the model
+
+    def test_a_rule_that_fails_the_checks_is_replaced_by_the_rates_code_found(self):
+        answer, _, _ = run_agent(question="ประกันสังคมหักเดือนละเท่าไร", final=[draft(answer="หักเดือนละ 999 บาท")])
+        self.assertNotIn("999", answer.answer)
+        self.assertIn("17500", answer.answer)
+        self.assertTrue(answer.answer.endswith("ขอทราบค่าจ้าง"))
+        self.assertEqual(answer.clarifying_question, "ขอทราบค่าจ้าง")
+
+    def test_asking_falls_back_to_the_question_alone_without_a_checked_rule(self):
+        answer, _, _ = run_agent(question="ถูกเลิกจ้าง ได้ค่าชดเชยเท่าไร",
+                                 tool_replies=[tool_call("calculate", {"kind": "severance", "wage": 0})],
+                                 final=[draft(answer="ได้ 999 วัน")])
+        self.assertEqual(answer.answer, "ขอข้อมูลเพิ่มเติมก่อนตอบ")
+        self.assertIn("ค่าจ้าง", answer.clarifying_question)
+
+    def test_the_most_deducted_is_calculated_at_the_ceiling(self):
+        answer, trace, _ = run_agent(question="ปี 2570 ลูกจ้างถูกหักเงินสมทบประกันสังคมได้มากที่สุดเดือนละกี่บาท",
+                                     tool_replies=[tool_call("calculate", {"kind": "sso_contribution", "wage": 0})],
+                                     final=[draft(answer="สูงสุดเดือนละ 875 บาท", citations=[])])
+        self.assertIsNone(answer.clarifying_question)
+        self.assertEqual(answer.calculation.value, 875)
+        self.assertIn("ถึงเพดาน 17,500 บาท", answer.answer)
+
+    def test_a_date_rate_is_written_as_a_thai_date_without_the_other_date(self):
+        rate = get_rate("ewf_collection_start", "2026-11-01")
+        self.assertIn("คือวันที่ 1 มกราคม 2570", rate_text(rate))
+        self.assertNotIn("2026-10-01", rate_text(rate))
+        self.assertNotIn("ตุลาคม", rate_text(rate))
+
     def test_code_looks_up_a_rate_the_question_names(self):
         answer, trace, _ = run_agent(question="ค่าแรงขั้นต่ำวันละเท่าไร")
         self.assertIn("จังหวัด", answer.clarifying_question)
@@ -561,7 +630,7 @@ class AgentLoop(unittest.TestCase):
         answer, _, _ = run_agent(tool_replies=[tool_call("calculate", {"kind": "severance", "wage": 30000, "years": 25})],
                                  final=[draft(answer="ได้ 400,000 บาท", citations=[{"law": "LPA2541", "section": "s.118"},
                                                                                 {"law": "ผลคำนวณ", "section": "x"}])])
-        self.assertEqual(answer.answer, "ได้ 400,000 บาท")
+        self.assertTrue(answer.answer.startswith("ได้ 400,000 บาท\n\nวิธีคิด:"))
         self.assertEqual([c.section for c in answer.citations], ["118"])
 
     def test_an_answer_must_state_the_rate_it_looked_up(self):
@@ -674,8 +743,29 @@ class QuestionDate(unittest.TestCase):
         self.assertIsNone(question_date("ลาคลอดได้กี่วัน", "2026-11-01"))
 
 
+class LinkedSections(unittest.TestCase):
+    def test_a_penalty_section_is_linked_to_the_duty_it_names(self):
+        self.assertEqual(penalties()[("FOREIGN2560", "8")], [("FOREIGN2560", "101")])
+        self.assertEqual(penalties()[("FOREIGN2560", "9")], [("FOREIGN2560", "102")])
+        self.assertIn(("LPA2541", "144"), penalties()[("LPA2541", "61")])  # listed after "บทบัญญัติดังต่อไปนี้"
+
+    def test_an_exception_named_after_the_penalty_is_not_a_duty(self):
+        # s.101 ends "เว้นแต่เป็นคนต่างด้าวตามมาตรา 63"
+        self.assertNotIn(("FOREIGN2560", "101"), penalties().get(("FOREIGN2560", "63"), []))
+
+    def test_a_penalty_question_gets_the_duty_and_its_penalty(self):
+        found = penalty_sections("คนต่างด้าวทำงานโดยไม่มีใบอนุญาตมีโทษอย่างไร", "", [{"law": "FOREIGN2560"}])
+        self.assertIn(("FOREIGN2560", "8"), found)
+        self.assertIn(("FOREIGN2560", "101"), found)
+        self.assertEqual(penalty_sections("คนต่างด้าวทำงานโดยไม่มีใบอนุญาตได้ไหม", "", [{"law": "FOREIGN2560"}]), [])
+
+    def test_a_question_whether_an_act_is_in_force_gets_the_section_repealing_it(self):
+        self.assertEqual(repealing_sections("พ.ร.บ.การทำงานของคนต่างด้าว พ.ศ. 2551 ยังใช้บังคับอยู่ไหม"), [("FOREIGN2560", "3")])
+        self.assertEqual(repealing_sections("พ.ร.บ.คุ้มครองแรงงาน พ.ศ. 2541 ยังใช้บังคับอยู่ไหม"), [])
+
+
 class Applies(unittest.TestCase):
-    PREGNANT = "ห้ามมิให้นายจ้างให้ลูกจ้างซึ่งเป็นหญิงมีครรภ์ทำงานในระหว่างเวลา 22.00 นาฬิกา"
+    PREGNANT ="ห้ามมิให้นายจ้างให้ลูกจ้างซึ่งเป็นหญิงมีครรภ์ทำงานในระหว่างเวลา 22.00 นาฬิกา"
     CHILD = "ห้ามมิให้นายจ้างให้ลูกจ้างซึ่งเป็นเด็กอายุต่ำกว่าสิบแปดปีทำงานในระหว่างเวลา 22.00 นาฬิกา"
 
     def test_a_rule_for_a_group_the_question_does_not_mention_is_dropped(self):
@@ -709,6 +799,41 @@ class AnswerChecks(unittest.TestCase):
                 {"law": "LPA2541", "section": "24", "text": "ทำงานล่วงเวลา"}]
         self.assertEqual([r["section"] for r in focus(rows, "สี่สิบแปดชั่วโมง")], ["23"])
         self.assertEqual(len(focus(rows, "ไม่มีในผลค้น")), 3)
+
+    def test_the_answer_also_sees_the_whole_section_and_others_that_answer(self):
+        rows = [{"law": "LPA2541", "section": "23", "text": "ไม่เกินสี่สิบแปดชั่วโมง"},
+                {"law": "MARITIME2558", "section": "48", "text": "คนประจำเรือ"},
+                {"law": "LPA2541", "section": "24", "text": "ทำงานล่วงเวลา"}]
+        shown = focus(rows, "สี่สิบแปดชั่วโมง", also={("LPA2541", "24")})
+        self.assertEqual([r["section"] for r in shown], ["23", "24"])
+        self.assertTrue(shown[0]["text"].startswith("มาตรา 23"))  # the full section, not the chunk found
+
+    def test_a_workplace_matter_is_refused_as_left_to_the_contract(self):
+        def model(messages, tools=None):
+            if messages[0]["content"] == SCOPE:
+                return text(json.dumps({"workplace": True, "topic": "เรื่องเบี้ยขยัน"}))
+            return fake_model(check={"covers_topic": False, "answers": False, "quote": ""})(messages, tools)
+        answer, trace = Agent(search_law(), lambda question, rewrite, k=5: [Hit(CHUNK, 0.9)], model).run("ต้องได้เบี้ยขยันไหม")
+        self.assertTrue(answer.not_found)
+        self.assertEqual(answer.citations, [])
+        self.assertTrue(answer.answer.startswith("กฎหมายที่ระบบมีไม่ได้บังคับเรื่องเบี้ยขยัน จึงขึ้นกับสัญญาจ้างหรือข้อบังคับของบริษัท"))
+
+    def test_another_kind_of_question_keeps_the_plain_refusal(self):
+        reply = lambda answer: lambda messages, tools=None: text(json.dumps(answer, ensure_ascii=False))
+        self.assertIsNone(refusal_scope("ค่าครองชีพที่ญี่ปุ่น", reply({"workplace": False, "topic": "ค่าครองชีพ"})))
+        self.assertIsNone(refusal_scope("x", reply({"oops": 1})))
+        self.assertEqual(refusal_scope("x", reply({"workplace": True, "topic": "ค่าอาหาร 50 บาท"})), "นี้")
+
+    def test_a_refusal_is_scored_by_its_kind(self):
+        workplace, outside = {"refusal": "not_required"}, {"refusal": "outside"}
+        left_to_contract = {"answer": "กฎหมายที่ระบบมีไม่ได้บังคับเรื่องเบี้ยขยัน", "not_found": True}
+        plain = {"answer": "ไม่ทราบ เนื่องจากข้อมูลนี้เกินขอบเขตของเนื้อหาที่มีอยู่", "not_found": True}
+        self.assertTrue(refusal_ok(workplace, left_to_contract))
+        self.assertFalse(refusal_ok(workplace, plain))
+        self.assertTrue(refusal_ok(outside, plain))
+        self.assertFalse(refusal_ok(outside, left_to_contract))
+        self.assertFalse(refusal_ok(workplace, {**left_to_contract, "not_found": False}))
+        self.assertIsNone(refusal_ok({}, plain))
 
     def test_supporting_figures_are_scored_apart(self):
         q = {"expected_number": 75, "expected_numbers": [75], "supporting_numbers": [3], "expected_behavior": "answer"}
