@@ -6,12 +6,21 @@ Answers questions about Thai employee rights from the laws **in force**, citing 
 
 ## Example
 
-`POST /ask` with `{"question": "ลาคลอดได้กี่วัน ได้รับค่าจ้างกี่วัน"}` returns:
+`POST /ask` with `{"question": "ทำงานมา 3 ปี 2 เดือน เงินเดือน 25,000 บาท ถูกเลิกจ้าง ได้ค่าชดเชยอย่างน้อยเท่าไร"}` returned (question `C01` in `eval/results/answers_agent.jsonl`, `answer` shortened):
 
 ```json
 {
-  "answer": "ลาคลอดได้ไม่เกิน 120 วันต่อการตั้งครรภ์ นายจ้างจ่ายค่าจ้างไม่เกิน 60 วัน",
-  "citations": [{"law": "LPA2541", "section": "41", "amendment_no": 9, "effective_date": "2025-12-07"}],
+  "answer": "ลูกจ้างจะได้รับค่าชดเชยอย่างน้อยเท่ากับค่าจ้างอัตราสุดท้าย 180 วัน ... โดยค่าชดเชยอย่างน้อยคือ 150,000 บาท ...",
+  "citations": [{"law": "LPA2541", "section": "118", "amendment_no": 7, "effective_date": "2019-05-05",
+                 "source": "พ.ร.บ.คุ้มครองแรงงาน พ.ศ. 2541 (ฉบับรวมถึงฉบับที่ 9)"}],
+  "calculation": {
+    "kind": "severance",
+    "value": 150000.0,
+    "unit": "baht",
+    "formula": "ค่าจ้างวันละ 833.333 x 180 วัน",
+    "legal_basis": "LPA2541 s.118",
+    "explanation": "ทำงาน 3 ปี 2 เดือน อยู่ในช่วงครบ 3 ปีแต่ไม่ครบ 6 ปี ได้ค่าชดเชยไม่น้อยกว่าค่าจ้างอัตราสุดท้าย 180 วัน; 25,000 / 30 x 180 = 150,000 บาท"
+  },
   "as_of": "2026-11-01",
   "confidence": "high",
   "not_found": false,
@@ -19,6 +28,8 @@ Answers questions about Thai employee rights from the laws **in force**, citing 
   "correction": null
 }
 ```
+
+The full write-up is in [`report.pdf`](report.pdf) (Thai).
 
 ## How it works
 
@@ -35,6 +46,9 @@ question → FastAPI POST /ask → agent (gemma-4-E4B-it)
 - **Refuses from the content, not a score:** if the model can't quote a sentence from the results that answers the question, it says it doesn't know.
 - **Asks back or corrects** when details are missing or the question rests on a wrong belief.
 - **Every number must have a source:** the retrieved text, a tool result or the question.
+- **Safe model and tool use:** the key and proxy URL come from the environment; every call uses `temperature=0`; the model can only call the three allow-listed tools, at most 5 steps and 2 searches a question; tool arguments are checked by Pydantic models that reject extra fields, and a bad call comes back to the model as an error instead of crashing; the final answer must pass the `Answer` schema, with up to 2 retries.
+
+Course capabilities covered: structured output, RAG, retrieval evaluation, an agent loop with tools (the agentic capability), and a FastAPI service.
 
 ## Corpus
 
@@ -46,10 +60,13 @@ Retrieval, 82 questions with gold sections:
 
 | Variant | recall@5 | MRR |
 |---|---:|---:|
-| BM25, raw text | 0.018 | 0.015 |
+| BM25, raw text (baseline) | 0.018 | 0.015 |
 | BM25 + PyThaiNLP | 0.504 | 0.357 |
 | Embeddings | 0.764 | 0.683 |
-| Reranked, both wordings (used by the agent) | **0.900** | **0.797** |
+| Hybrid, reranked top 50 | 0.841 | **0.812** |
+| Reranked, both wordings (used by the agent) | **0.900** | 0.797 |
+
+The measured improvement is the retrieval choice: recall@5 rose from 0.018 for raw BM25 to 0.900. Reranking each wording's top 10 instead of the hybrid top 50 also cut the time from 35.6 s to about 21 s a question. For plain RAG, `eval/sweep_min_score.py` sets the refusal floor at 0.10.
 
 Answers, 100 labelled questions (`eval/questions.jsonl`):
 
@@ -116,4 +133,5 @@ read/      write-up of each stage: corpus, build_chunks, rates, retrieval, agent
 - Law changes after 1 November 2026 are not included.
 - A small model can still pick the wrong formula or miss a condition.
 - One person wrote and labelled the evaluation questions.
+- The LLM judge is the same model that wrote the answers and does not measure completeness.
 - Statute text only: no court rulings, contracts or company policies.
