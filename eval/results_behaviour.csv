@@ -1,4 +1,4 @@
 mode,ask_recall,over_ask,ask_precision,over_asked,correction_filled,correction_right,false_corrections,pairs_over_asked,right_beliefs_corrected,controls_refused
 baseline,7/8,28/92,7/35,G04 G08 G12 T05 T06 T09 O01 O04 O05 T11 T12 T14 C12 G30 G33 G37 G40 T16 T17 T18 T19 C19 C20 C21 O11 O12 O16 O18,0/10,0/10,2/90,,,
 rag,2/8,1/92,2/3,X02,3/10,2/10,1/90,,,
-agent,5/8,4/92,5/9,G12 O03 T11 T16,10/10,9/10,0/90,0/8,0/6,0/14
+agent,6/8,2/92,6/8,G12 G33,8/10,8/10,0/90,0/8,0/6,0/14

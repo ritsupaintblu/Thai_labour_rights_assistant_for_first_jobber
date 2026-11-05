@@ -40,9 +40,9 @@ The assistant answers Thai employee-rights questions from the laws in force on 1
 | Measure | No retrieval | RAG | Agent |
 | --- | ---: | ---: | ---: |
 | Expected behaviour | 59/100 | 72/100 | **92/100** |
-| Right figures, none outdated | 7/58 | 30/58 | **52/58** |
+| Right figures, none outdated | 7/58 | 30/58 | **55/58** |
 | Calculations correct | 2/18 | 2/18 | **18/18** |
-| Out of scope refused | 10/18 | **18/18** | 17/18 |
+| Out of scope refused | 10/18 | **18/18** | 16/18 |
 
 ## Limitations
 

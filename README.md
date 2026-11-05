@@ -56,11 +56,13 @@ Answers, 100 labelled questions (`eval/questions.jsonl`):
 | Measure | No retrieval | RAG | Agent |
 |---|---:|---:|---:|
 | Expected behaviour | 59/100 | 72/100 | **92/100** |
-| Right figures, none outdated | 7/58 | 30/58 | **52/58** |
+| Right figures, none outdated | 7/58 | 30/58 | **55/58** |
 | Calculations correct | 2/18 | 2/18 | **18/18** |
-| Cites a gold section | 17/74 | 48/74 | **61/74** |
+| Cites a gold section or rate announcement | 17/74 | 48/74 | **70/74** |
 
-The system was tuned on these 100 questions, so it was also checked on five locked held-out sets written later. On the latest (44 questions, 3 runs) the agent gave the expected behaviour on 41–42/44 and cited a gold section on 29–30/32. Details are in `eval/results/` and the commit history.
+The model's answers vary a little between runs, even at temperature 0. A fresh run of all three on a new machine (`eval/results/fresh_run/`) gave 58, 73 and 91/100 expected behaviour, and the agent 53/58 figures, 18/18 calculations and 70/74 citations. Retrieval without the model gave the same numbers to the last digit; with the model's rewording, 0.898 and 0.805.
+
+The system was tuned on these 100 questions, so it was also checked on five locked held-out sets written later. On the latest (44 questions, 3 runs) the agent gave the expected behaviour on 41–42/44 and cited a gold section on 29–30/32; three fresh runs on a new machine gave 41/44 and 30/32 each time (`eval/results_heldout5_rerun.csv`). Details are in `eval/results/` and the commit history.
 
 ## Getting started
 
@@ -95,6 +97,8 @@ A new question takes about 20–40 seconds on CPU, mostly reranking.
 
 Tests: `python -m unittest discover -s tests -t .`
 Evaluation: `python eval/run_retrieval.py`, `python eval/run_answers.py baseline rag agent`, `python eval/run_heldout.py --set=heldout5 --label=fixed`
+
+`run_answers.py` and `run_heldout.py` reuse the answers saved in `eval/results/`, so they reproduce the tables above in a few minutes. To ask the model again, pass a new folder (`--out=eval/results/rerun`) or label (`--label=rerun`). On a new machine `run_retrieval.py` and a fresh answer run each take a few hours on CPU, since reranker scores are cached in `data/index/` only after they are first computed.
 
 ## Project structure
 

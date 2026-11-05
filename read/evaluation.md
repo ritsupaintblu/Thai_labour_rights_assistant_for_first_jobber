@@ -37,26 +37,25 @@ Nov 2–5, 2026 · @riri
 
 ## Results
 
+The agent is the final one, after four rounds of fixes (`eval/results/after_fixes4`, copied to `eval/results/answers_agent.jsonl`). The earlier rounds are in `eval/results/after_fixes*` and the commit history.
+
 | Measure | No retrieval | RAG | Agent |
 | --- | ---: | ---: | ---: |
 | Expected behaviour | 59/100 | 72/100 | **92/100** |
-| Figures asked for, none outdated | 7/58 | 30/58 | **52/58** |
-| Cites a gold section | 17/74 | 48/74 | **61/74** |
-| LLM judge says correct | 13/74 | 41/74 | **65/74** |
+| Figures asked for, none outdated | 7/58 | 30/58 | **55/58** |
+| Cites a gold section or rate announcement | 17/74 | 48/74 | **70/74** |
+| LLM judge says correct | 13/74 | 41/74 | **64/74** |
 | Calculation: right amount | 2/18 | 2/18 | **18/18** |
-| Trap: right figures | 1/18 | 7/18 | **15/18** |
-| Out of scope: refused | 10/18 | **18/18** | 17/18 |
-| Asked back when needed | **7/8** | 2/8 | 5/8 |
-| Asked back when not needed | 28/92 | **1/92** | 4/92 |
-| Correction with the right content | 0/10 | 2/10 | **9/10** |
+| Trap: right figures | 1/18 | 7/18 | **17/18** |
+| Out of scope: refused | 10/18 | **18/18** | 16/18 |
+| Asked back when needed | **7/8** | 2/8 | 6/8 |
+| Asked back when not needed | 28/92 | **1/92** | 2/92 |
+| Correction with the right content | 0/10 | 2/10 | **8/10** |
 | Corrected with nothing to correct | 2/90 | 1/90 | **0/90** |
 
-After four rounds of fixes, the final agent (`eval/results/after_fixes4`) scored:
+A citation counts when it names a gold section or, for a rate, the announcement in the question's `gold_sources`.
 
-- Expected behaviour 92/100
-- Figures 55/58, supporting figures 9/10
-- Gold citations 70/74
-- Judge 64/74
+Answers vary a little between runs, even at temperature 0. A fresh run of all three systems on a new machine (5 November 2026, `eval/results/fresh_run/`) gave 58, 73 and 91/100 expected behaviour; the agent got 53/58 figures, 18/18 calculations and 70/74 citations. Only 51 of the agent's 100 answers came out word for word the same, yet expected behaviour, figures, calculations and citations each moved by two or fewer for every system; the LLM judge moved by up to four. The `seconds_per_query` in `fresh_run/retrieval.csv` are not comparable: the reranker cache was empty and the laptop slept during the run.
 
 ### Manual review
 
@@ -69,7 +68,7 @@ One person labelled all 100 answers of `after_fixes3`:
 | Wrong | 6 |
 | Unsure | 12, all out of scope |
 
-- **The judge passes no wrong answers but most incomplete ones:** it passed 0 of 6 wrong and 20 of 23 partly correct.
+- **The judge passes no wrong answers but most incomplete ones:** of the answers it judged, it passed 0 of 5 wrong and 20 of 23 partly correct. The sixth wrong answer, `A06`, asks back, so the judge does not score it.
 - **The behaviour check passed 4 wrong answers:** `T04`, `T10`, `T15`, `T16`.
 
 The fixes from this review are in `heldout.md`.
