@@ -29,8 +29,6 @@ Answers questions about Thai employee rights from the laws **in force**, citing 
 }
 ```
 
-The full write-up is in [`report.pdf`](report.pdf) (Thai).
-
 ## How it works
 
 ```
