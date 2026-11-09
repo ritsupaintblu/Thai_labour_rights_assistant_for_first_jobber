@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ผู้ช่วยสิทธิแรงงาน</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #1f2328; --muted: #5f6670; --line: #e3e1da;
+    --accent: #1d5fd1; --accent-soft: #e8effc;
+    --good: #1a7f37; --good-soft: #e6f4ea; --warn: #9a6700; --warn-soft: #fff4d6;
+    --bad: #b42318; --bad-soft: #fdecea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 17px/1.65 "Leelawadee UI", "Sarabun", "Tahoma", system-ui, sans-serif;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  textarea {
+    width: 100%; min-height: 84px; resize: vertical; padding: 12px 14px;
+    font: inherit; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text);
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 999px; border: 1px solid var(--line);
+    background: #fff; color: var(--text); padding: 6px 14px;
+  }
+  button:hover { border-color: var(--accent); }
+  #ask { background: var(--accent); color: #fff; border-color: var(--accent); padding: 9px 26px; font-weight: 600; }
+  #ask:disabled { opacity: .55; cursor: wait; }
+  .hint { color: var(--muted); font-size: .9rem; }
+  .examples { margin-top: 14px; }
+  .examples .label { color: var(--muted); font-size: .9rem; margin-right: 4px; }
+  .examples button { font-size: .92rem; background: var(--accent-soft); border-color: transparent; }
+  #status { margin: 20px 0 0; color: var(--muted); }
+  #result { margin-top: 20px; display: grid; gap: 14px; }
+  .q { color: var(--muted); font-size: .95rem; }
+  .answer { white-space: pre-wrap; font-size: 1.08rem; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .badge { font-size: .85rem; padding: 2px 10px; border-radius: 999px; font-weight: 600; }
+  .b-high { background: var(--good-soft); color: var(--good); }
+  .b-medium { background: var(--warn-soft); color: var(--warn); }
+  .b-low, .b-nf { background: var(--bad-soft); color: var(--bad); }
+  .b-date { background: #eeeeea; color: var(--muted); font-weight: 400; }
+  h2 { font-size: 1rem; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+  .big { font-size: 2rem; font-weight: 700; color: var(--accent); line-height: 1.2; }
+  .mono { font-family: Consolas, "Courier New", monospace; font-size: .92rem; }
+  .note { border-left: 4px solid var(--warn); background: var(--warn-soft); }
+  .note.fix { border-left-color: var(--bad); background: var(--bad-soft); }
+  ul.cites { margin: 0; padding-left: 20px; }
+  ul.cites li { margin: 4px 0; }
+  .cite-meta { color: var(--muted); font-size: .9rem; }
+  details summary { cursor: pointer; color: var(--muted); }
+  pre { margin: 10px 0 0; padding: 12px; background: #f3f2ee; border-radius: 8px; overflow-x: auto; font-size: .82rem; }
+  .lawtext {
+    margin: 8px 0 4px; padding: 10px 14px; border-left: 3px solid var(--accent);
+    background: var(--accent-soft); border-radius: 0 8px 8px 0; white-space: pre-wrap; font-size: .95rem;
+  }
+  .small { font-size: .85rem; padding: 2px 10px; margin-left: 6px; }
+  #lookup { margin-top: 24px; }
+  #lookup select, #lookup input {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--text);
+  }
+  #lookup input { width: 7em; }
+  footer { margin-top: 32px; color: var(--muted); font-size: .85rem; }
+  .err { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>ผู้ช่วยสิทธิแรงงานสำหรับคนเริ่มทำงาน</h1>
+  <p class="sub">ตอบจากกฎหมายแรงงานไทยที่มีผลบังคับใช้ พร้อมมาตราที่อ้างอิง เงินคำนวณด้วยโปรแกรม ไม่ใช่ให้ AI เดา</p>
+
+  <div class="card">
+    <textarea id="q" placeholder="พิมพ์คำถาม เช่น ทำงานมา 2 ปี เงินเดือน 20,000 บาท ถูกเลิกจ้าง ได้ค่าชดเชยเท่าไร"></textarea>
+    <div class="row">
+      <button id="ask">ถาม</button>
+      <span class="hint">กด Enter เพื่อถาม · ใช้เวลาประมาณ 10–60 วินาที</span>
+    </div>
+    <div class="row examples">
+      <span class="label">ลองถาม:</span>
+      <button data-q="ทำงานมา 3 ปี 2 เดือน เงินเดือน 25,000 บาท ถูกเลิกจ้าง ได้ค่าชดเชยอย่างน้อยเท่าไร">ค่าชดเชยเมื่อถูกเลิกจ้าง</button>
+      <button data-q="เงินเดือน 20,000 บาท ต้องจ่ายเงินสมทบประกันสังคมเดือนละเท่าไร">เงินสมทบประกันสังคม</button>
+      <button data-q="รับงานฟรีแลนซ์ออกแบบโลโก้ ลูกค้าไม่ยอมจ่ายเงิน ทำอะไรได้บ้าง">ฟรีแลนซ์ไม่ได้เงิน</button>
+      <button data-q="เงินเดือน 18,000 บาท ทำงานวันละ 8 ชั่วโมง ถูกเรียกมาทำงานวันหยุดประจำสัปดาห์ 8 ชั่วโมง ได้ค่าทำงานในวันหยุดเพิ่มอย่างน้อยเท่าไร">ถูกเรียกมาทำงานวันหยุด</button>
+      <button data-q="เพิ่งเริ่มงานเดือนแรก มีสิทธิลาได้กี่วันบ้าง">เริ่มงานเดือนแรกลาได้กี่วัน</button>
+    </div>
+  </div>
+
+  <p id="status" hidden></p>
+  <div id="result"></div>
+
+  <div class="card" id="lookup">
+    <h2>เปิดตัวบทกฎหมายเพื่อตรวจคำตอบ</h2>
+    <div class="row">
+      <select id="lk-law">
+        <option value="LPA2541">พ.ร.บ.คุ้มครองแรงงาน</option>
+        <option value="SSA2533">พ.ร.บ.ประกันสังคม</option>
+        <option value="WCA2537">พ.ร.บ.เงินทดแทน</option>
+      </select>
+      <span>มาตรา</span>
+      <input id="lk-section" placeholder="เช่น 32">
+      <button id="lk-go">เปิดตัวบท</button>
+    </div>
+    <div id="lk-out"></div>
+  </div>
+
+  <footer>ไม่ใช่คำปรึกษาทางกฎหมาย ข้อมูลกฎหมาย ณ 1 พฤศจิกายน 2569 ก่อนตัดสินใจควรตรวจตัวบทหรือโทรสายด่วนกรมสวัสดิการและคุ้มครองแรงงาน 1546</footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const UNITS = { baht: "บาท", days: "วัน", hours: "ชั่วโมง" };
+const CONF = { high: "ความมั่นใจ: สูง", medium: "ความมั่นใจ: ปานกลาง", low: "ความมั่นใจ: ต่ำ" };
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  for (const c of children) if (c != null) node.append(c);
+  return node;
+}
+
+function thaiDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d) ? iso : d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+}
+
+// PDF line breaks split Thai words: join Thai to Thai directly, anything else with a space,
+// and keep the break before a numbered clause such as "(1)".
+const tidy = (text) => text
+  .replace(/([฀-๿])\n(?=[฀-๿])/g, "$1")
+  .replace(/\n(?!\(\d)/g, " ");
+
+async function lawText(law, section) {
+  const res = await fetch("/section?" + new URLSearchParams({ law, section }));
+  if (res.status === 404) throw new Error("ไม่พบมาตรานี้ในกฎหมายที่มีผลบังคับใช้");
+  if (!res.ok) throw new Error("เปิดตัวบทไม่ได้ (" + res.status + ")");
+  return res.json();
+}
+
+function lawBlock(s, withSource = true) {
+  if (!withSource) return el("div", { class: "lawtext" }, tidy(s.text));
+  const meta = [s.source, Number(s.amendment_no) === 0 ? "ฉบับเดิม" : "แก้ไขครั้งที่ " + s.amendment_no, "มีผล " + thaiDate(s.effective_date)];
+  return el("div", {}, el("div", { class: "lawtext" }, tidy(s.text)), el("div", { class: "cite-meta" }, meta.join(" · ")));
+}
+
+function render(question, a) {
+  const out = $("result");
+  out.replaceChildren();
+
+  const badges = el("div", { class: "badges" },
+    el("span", { class: "badge b-" + a.confidence }, CONF[a.confidence] || a.confidence),
+    a.not_found ? el("span", { class: "badge b-nf" }, "ไม่พบคำตอบในกฎหมายที่มี") : null,
+    el("span", { class: "badge b-date" }, "ข้อมูลกฎหมาย ณ " + thaiDate(a.as_of)));
+  out.append(el("div", { class: "card" },
+    el("div", { class: "q" }, "คำถาม: " + question), badges,
+    el("div", { class: "answer" }, a.answer)));
+
+  if (a.correction) out.append(el("div", { class: "card note fix" },
+    el("h2", {}, "ข้อเข้าใจที่ควรแก้"), el("div", {}, a.correction)));
+  if (a.clarifying_question) out.append(el("div", { class: "card note" },
+    el("h2", {}, "ขอข้อมูลเพิ่ม"), el("div", {}, a.clarifying_question)));
+
+  const c = a.calculation;
+  if (c) out.append(el("div", { class: "card" },
+    el("h2", {}, "ผลคำนวณ (คำนวณด้วย Python)"),
+    el("div", { class: "big" }, c.value.toLocaleString("th-TH", { maximumFractionDigits: 2 }) + " " + (UNITS[c.unit] || c.unit)),
+    el("div", { class: "mono" }, c.formula),
+    c.explanation ? el("div", {}, c.explanation) : null,
+    el("div", { class: "cite-meta" }, "ฐานทางกฎหมาย: " + c.legal_basis)));
+
+  if (a.citations && a.citations.length) {
+    const list = el("ul", { class: "cites" });
+    for (const ct of a.citations) {
+      const meta = [];
+      if (ct.amendment_no != null) meta.push(ct.amendment_no === 0 ? "ฉบับเดิม" : "แก้ไขครั้งที่ " + ct.amendment_no);
+      if (ct.effective_date) meta.push("มีผล " + thaiDate(ct.effective_date));
+      const slot = el("div");
+      let button = null;
+      if (ct.law) {
+        button = el("button", { class: "small" }, "ดูตัวบท");
+        button.addEventListener("click", async () => {
+          if (slot.firstChild) { slot.replaceChildren(); button.textContent = "ดูตัวบท"; return; }
+          try { slot.replaceChildren(lawBlock(await lawText(ct.law, ct.section), false)); button.textContent = "ซ่อนตัวบท"; }
+          catch (e) { slot.replaceChildren(el("div", { class: "err" }, e.message)); }
+        });
+      }
+      list.append(el("li", {},
+        el("strong", {}, (ct.law ? "มาตรา " : "ข้อ ") + ct.section), " · " + ct.source, button,
+        meta.length ? el("div", { class: "cite-meta" }, meta.join(" · ")) : null, slot));
+    }
+    out.append(el("div", { class: "card" }, el("h2", {}, "อ้างอิง"), list));
+  }
+
+  out.append(el("div", { class: "card" }, el("details", {},
+    el("summary", {}, "ดู JSON ที่ API ส่งกลับ"),
+    el("pre", {}, JSON.stringify(a, null, 2)))));
+}
+
+async function ask() {
+  const question = $("q").value.trim();
+  if (!question) { $("q").focus(); return; }
+  $("ask").disabled = true;
+  $("result").replaceChildren();
+  const status = $("status");
+  status.hidden = false;
+  status.className = "";
+  const start = Date.now();
+  const tick = () => { status.textContent = "กำลังค้นกฎหมายและเรียบเรียงคำตอบ… " + Math.round((Date.now() - start) / 1000) + " วินาที"; };
+  tick();
+  const timer = setInterval(tick, 1000);
+  try {
+    const res = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (!res.ok) {
+      const msg = res.status === 502 ? "เชื่อมต่อโมเดลไม่ได้ ลองใหม่อีกครั้ง"
+        : res.status === 422 ? "คำถามยาวเกินไป (ไม่เกิน 1,000 ตัวอักษร)"
+        : "เกิดข้อผิดพลาด (" + res.status + ")";
+      throw new Error(msg);
+    }
+    const answer = await res.json();
+    status.textContent = "ตอบใน " + Math.round((Date.now() - start) / 1000) + " วินาที";
+    render(question, answer);
+  } catch (e) {
+    status.className = "err";
+    status.textContent = e.message === "Failed to fetch" ? "ติดต่อเซิร์ฟเวอร์ไม่ได้ ตรวจว่าเปิดเซิร์ฟเวอร์อยู่" : e.message;
+  } finally {
+    clearInterval(timer);
+    $("ask").disabled = false;
+  }
+}
+
+async function lookup() {
+  const section = $("lk-section").value.trim().replace(/^มาตรา\s*/, "");
+  if (!section) { $("lk-section").focus(); return; }
+  try { $("lk-out").replaceChildren(lawBlock(await lawText($("lk-law").value, section))); }
+  catch (e) { $("lk-out").replaceChildren(el("div", { class: "err" }, e.message)); }
+}
+
+$("lk-go").addEventListener("click", lookup);
+$("lk-section").addEventListener("keydown", (e) => { if (e.key === "Enter") lookup(); });
+$("ask").addEventListener("click", ask);
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(); }
+});
+document.querySelectorAll("[data-q]").forEach((b) =>
+  b.addEventListener("click", () => { $("q").value = b.dataset.q; ask(); }));
+</script>
+</body>
+</html>

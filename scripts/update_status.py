@@ -1,4 +1,4 @@
-"""Write read/Update.pdf: which stage of the daily plan the project is in.
+"""Write abstract/Update.pdf: which stage of the daily plan the project is in.
 
 Runs after every commit through .githooks/post-commit. Enable it once per clone with:
     git config core.hooksPath .githooks
@@ -19,12 +19,12 @@ from pathlib import Path
 import pymupdf
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "read" / "Update.pdf"
+OUT = ROOT / "abstract" / "Update.pdf"
 FONT_DIR = Path("C:/Windows/Fonts")
 EVAL_QUESTIONS = 100
 
 # Tasks the repo cannot prove. Add a task's key here once it has really been checked
-CONFIRMED = {"figures", "retrieval", "eval1", "answers", "baseline", "tools", "agent", "evals", "api"}
+CONFIRMED = {"figures", "retrieval", "eval1", "answers", "baseline", "tools", "agent", "evals", "api", "report", "fresh_machine"}
 
 DONE, ACTIVE, TODO = "Done", "In progress", "Not started"
 

@@ -909,6 +909,27 @@ class Api(unittest.TestCase):
         with TestClient(app) as client:
             self.assertEqual(client.post("/ask", json={"question": ""}).status_code, 422)
 
+    def test_home_serves_the_web_page(self):
+        from src.api.main import app
+        with TestClient(app) as client:
+            response = client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response.headers["content-type"])
+        self.assertIn('fetch("/ask"', response.text)
+
+    def test_section_returns_the_in_force_text(self):
+        from src.api.main import app
+        with TestClient(app) as client:
+            body = client.get("/section", params={"law": "LPA2541", "section": "41"}).json()
+        self.assertEqual((body["amendment_no"], body["effective_date"]), (9, "2025-12-07"))
+        self.assertTrue(body["text"].startswith("มาตรา 41"))
+        self.assertNotIn("score", body)
+
+    def test_unknown_section_is_404(self):
+        from src.api.main import app
+        with TestClient(app) as client:
+            self.assertEqual(client.get("/section", params={"law": "LPA2541", "section": "9999"}).status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

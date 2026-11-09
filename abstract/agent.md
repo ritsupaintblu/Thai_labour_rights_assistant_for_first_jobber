@@ -21,8 +21,9 @@ The agent answers through FastAPI `POST /ask` with a Pydantic-validated JSON ans
 | `src/schemas.py` | `Draft` (what the model may write) and `Answer` (adds what only code fills in) |
 | `src/rag.py` | Plain RAG, the comparison for the agent |
 | `src/llm.py` | The one place that calls the model |
-| `src/api/main.py` | `POST /ask`; a model failure returns 502 |
-| `tests/test_agent.py` | 121 tests with a fake model |
+| `src/api/main.py` | `POST /ask`, where a model failure returns 502; `GET /section` for the in-force text of a cited section; `GET /` for the web page |
+| `src/api/static/index.html` | The web page: ask a question, then open each cited section |
+| `tests/test_agent.py` | 124 tests with a fake model |
 
 ## Problems found and fixes
 
@@ -68,7 +69,7 @@ Tools are allow-listed and their arguments validated before running. Retrieved t
 
 | Check | Result |
 | --- | --- |
-| All tests (`tests/`) | 155 pass |
+| All tests (`tests/`) | 158 pass |
 | Six new questions through `POST /ask` | 20–41 s each on CPU, about 21 s of it reranking |
 | Answers on 100 questions and five held-out sets | See `evaluation.md` and `heldout.md` |
 
@@ -83,7 +84,7 @@ Tools are allow-listed and their arguments validated before running. Retrieved t
 | Beliefs stated without a trigger word | `H18`, `H19`, `N36`–`N38` | A wider belief check, measured for false corrections |
 | Runs vary at `temperature=0` | 46 of 100 texts differed between two runs of an earlier version | Report ranges over several runs |
 
-To run the API (needs `OPENAI_API_KEY`, `OPENAI_BASE_URL` and the index):
+To run the API (needs `OPENAI_API_KEY`, `OPENAI_BASE_URL` and the index), double-click `start_app.bat` on Windows to open the web page at http://localhost:8000, or:
 
 ```bash
 uvicorn src.api.main:app

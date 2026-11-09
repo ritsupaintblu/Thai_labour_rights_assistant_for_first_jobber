@@ -22,7 +22,7 @@ The assistant answers Thai employee-rights questions from the laws in force on 1
 | Chunks | One chunk per section, tagged with amendment and effective date | 1,101 chunks from 10 Acts, 1,039 in force | [build_chunks.md](build_chunks.md) |
 | Rates | `rates.csv` and `get_rate`, typed from scans and unreadable PDFs | 99 rows: minimum wage, SSO and EWF rates and ceilings | [rates.md](rates.md) |
 | Retrieval | BM25 + PyThaiNLP, `bge-m3`, fusion, cross-encoder reranking | recall@5 from 0.018 (raw BM25) to 0.900 | [retrieval.md](retrieval.md) |
-| Agent and API | Agent with `search_law`, `calculate`, `get_rate`; FastAPI `POST /ask` | Every calculation right; 155 tests pass | [agent.md](agent.md) |
+| Agent and API | Agent with `search_law`, `calculate`, `get_rate`; FastAPI `POST /ask` and a web page that opens each cited section | Every calculation right; 158 tests pass | [agent.md](agent.md) |
 | Evaluation | 100 labelled questions, three systems, a manual review | 92/100 expected behaviour; the judge misses incomplete answers | [evaluation.md](evaluation.md) |
 | Held-out checks | Five locked sets, 242 questions, one per fix round | Tuned scores were optimistic; fixes gained a little, within the noise | [heldout.md](heldout.md) |
 

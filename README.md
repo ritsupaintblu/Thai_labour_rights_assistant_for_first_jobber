@@ -95,7 +95,9 @@ python scripts/build_chunks.py     # → data/processed/chunks.jsonl
 python scripts/build_index.py      # → data/index/ (downloads a 4.3 GB model)
 ```
 
-The model is `gemma-4-E4B-it`, called through any OpenAI-compatible server. Copy `.env.example` to `.env` and fill in `OPENAI_API_KEY` and `OPENAI_BASE_URL` (or set them in the environment), then:
+The model is `gemma-4-E4B-it`, called through any OpenAI-compatible server. Copy `.env.example` to `.env` and fill in `OPENAI_API_KEY` and `OPENAI_BASE_URL` (or set them in the environment).
+
+On Windows, double-click `start_app.bat`: it starts the server and opens the web page at http://localhost:8000 once the models have loaded. The page asks `POST /ask` and opens each cited section through `GET /section?law=LPA2541&section=41`, which returns the in-force text, so an answer can be checked against the statute. Or start it yourself:
 
 ```bash
 uvicorn src.api.main:app
@@ -122,10 +124,10 @@ Evaluation: `python eval/run_retrieval.py`, `python eval/run_answers.py baseline
 ```
 data/      manifest.csv, raw/ sources, processed/ chunks, rates.csv
 scripts/   fetch_corpus, build_chunks, build_index
-src/       retrieval/, agent/ (loop and tools), api/, schemas.py, rag.py, llm.py
+src/       retrieval/, agent/ (loop and tools), api/ (endpoints and static/ web page), schemas.py, rag.py, llm.py
 eval/      questions, held-out sets, runners, results/
 tests/
-read/      write-up of each stage: corpus, build_chunks, rates, retrieval, agent, evaluation, heldout
+abstract/  overview.md, then a write-up of each stage: corpus, build_chunks, rates, retrieval, agent, evaluation, heldout
 ```
 
 ## Limitations

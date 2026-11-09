@@ -2,15 +2,20 @@
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from openai import OpenAIError
 from pydantic import BaseModel, Field
 
 from src.agent.loop import build_agent
+from src.agent.tools.search_law import section_result
 from src.schemas import Answer
 
 log = logging.getLogger(__name__)
+
+PAGE = (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
 
 
 class AskRequest(BaseModel):
@@ -24,6 +29,20 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Thai Labour-Rights Assistant", lifespan=lifespan)
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def home():
+    return PAGE
+
+
+@app.get("/section")
+def section(law: str, section: str):
+    """The in-force text of one section, so a reader can check an answer against the statute itself."""
+    result = section_result((law, section))
+    if result is None:
+        raise HTTPException(status_code=404, detail="No in-force section with that number")
+    return {k: result[k] for k in ("law", "section", "amendment_no", "effective_date", "source", "text")}
 
 
 @app.post("/ask", response_model=Answer)
